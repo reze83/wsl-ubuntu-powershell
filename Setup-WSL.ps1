@@ -120,6 +120,7 @@ $($Script:C.Reset)
 #region ── Scheduled Task (Resume nach Neustart) ─────────────────────────────
 
 function Register-ResumeTask {
+    if ($DryRun) { Write-Dim "[DRY-RUN] Register-ResumeTask"; return }
     $argList = "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`" install" +
                " -Distribution $Distribution -SetupMode $SetupMode"
     if ($GitUserName)  { $argList += " -GitUserName `"$GitUserName`"" }
@@ -186,7 +187,6 @@ function Invoke-ElevatedIfNeeded {
     if ($GitUserEmail)      { $argList += @("-GitUserEmail", "`"$GitUserEmail`"") }
     if ($SshKeyEmail)       { $argList += @("-SshKeyEmail",  "`"$SshKeyEmail`"") }
     if ($RemoveWSLFeatures) { $argList += "-RemoveWSLFeatures" }
-    if ($DryRun)           { $argList += "-DryRun" }
 
     Start-Process powershell.exe -Verb RunAs -ArgumentList $argList
     exit 0
@@ -219,9 +219,12 @@ function Enable-WSLFeatures {
 
     if ($rebootNeeded -and -not $DryRun) {
         Write-Warn "Neustart erforderlich!"
-        Register-ResumeTask
         $answer = Read-Host "  Jetzt neu starten? [J/n]"
-        if ($answer -match '^[jJyY]?$') { Restart-Computer -Force }
+        if ($answer -match '^[jJyY]?$') {
+            Register-ResumeTask
+            Restart-Computer -Force
+        }
+        Write-Warn "Kein Neustart – bitte manuell neu starten und dann: .\Setup-WSL.ps1 install"
         exit 0
     }
 }
@@ -250,7 +253,11 @@ function Set-WSLDefaultVersion {
 
 function Disable-WSLFeatures {
     # Pruefen ob noch andere Distros ausser der gerade deregistrierten vorhanden sind
+    # UTF-16 LE Encoding fuer wsl.exe Output in PS 5.1 setzen
+    $prevEncoding = [Console]::OutputEncoding
+    [Console]::OutputEncoding = [System.Text.Encoding]::Unicode
     $remaining = wsl --list --quiet 2>&1 | Where-Object { $_.Trim() -ne '' }
+    [Console]::OutputEncoding = $prevEncoding
     if ($remaining.Count -gt 0) {
         Write-Warn "Weitere WSL-Distributionen vorhanden – WSL-Features bleiben aktiv:"
         $remaining | ForEach-Object { Write-Dim "    $_" }
@@ -283,8 +290,12 @@ function Disable-WSLFeatures {
 #region ── Ubuntu-Lifecycle ──────────────────────────────────────────────────
 
 function Get-IsDistributionInstalled {
+    # UTF-16 LE Encoding fuer wsl.exe Output in PS 5.1 setzen
+    $prevEncoding = [Console]::OutputEncoding
+    [Console]::OutputEncoding = [System.Text.Encoding]::Unicode
     $list = wsl --list --quiet 2>&1
-    return ($list | Where-Object { $_ -match [regex]::Escape($Distribution) }).Count -gt 0
+    [Console]::OutputEncoding = $prevEncoding
+    return ($list | Where-Object { $_.Trim() -eq $Distribution }).Count -gt 0
 }
 
 function Install-Ubuntu {
@@ -311,6 +322,10 @@ function Install-Ubuntu {
     Write-Host ""
 
     wsl --install -d $Distribution
+    if ($LASTEXITCODE -ne 0) {
+        Write-Err "$Distribution konnte nicht installiert werden (Exit-Code: $LASTEXITCODE)"
+        exit 1
+    }
     Write-Ok "$Distribution installiert"
 }
 
@@ -364,8 +379,8 @@ function Reset-Ubuntu {
     Write-Step "$Distribution zuruecksetzen..."
 
     if (Get-IsDistributionInstalled) {
-        $confirm = Read-Host "  $Distribution wirklich deregistrieren? Alle Daten gehen verloren! [J/n]"
-        if ($confirm -notmatch '^[jJyY]?$') {
+        $confirm = Read-Host "  $Distribution wirklich deregistrieren? Alle Daten gehen verloren! [j/N]"
+        if ($confirm -notmatch '^[jJyY]$') {
             Write-Warn "Abgebrochen."
             return
         }
@@ -373,6 +388,10 @@ function Reset-Ubuntu {
             Write-Dim "[DRY-RUN] wsl --unregister $Distribution"
         } else {
             wsl --unregister $Distribution
+            if ($LASTEXITCODE -ne 0) {
+                Write-Err "wsl --unregister fehlgeschlagen (Exit-Code: $LASTEXITCODE)"
+                exit 1
+            }
             Write-Ok "$Distribution deregistriert"
         }
     } else {
@@ -445,23 +464,29 @@ function Remove-Ubuntu {
     if (-not (Get-IsDistributionInstalled)) {
         Write-Warn "$Distribution ist nicht installiert."
         Remove-ResumeTask
+        if ($RemoveWSLFeatures) { Disable-WSLFeatures }
         return
     }
 
-    $confirm = Read-Host "  $Distribution wirklich deregistrieren? Alle Daten gehen verloren! [J/n]"
-    if ($confirm -notmatch '^[jJyY]?$') {
+    $confirm = Read-Host "  $Distribution wirklich deregistrieren? Alle Daten gehen verloren! [j/N]"
+    if ($confirm -notmatch '^[jJyY]$') {
         Write-Warn "Abgebrochen."
         return
     }
 
     if ($DryRun) {
         Write-Dim "[DRY-RUN] wsl --unregister $Distribution"
+        Remove-ResumeTask
         Remove-TerminalProfile
         if ($RemoveWSLFeatures) { Write-Dim "[DRY-RUN] Disable-WSLFeatures" }
         return
     }
 
     wsl --unregister $Distribution
+    if ($LASTEXITCODE -ne 0) {
+        Write-Err "wsl --unregister fehlgeschlagen (Exit-Code: $LASTEXITCODE)"
+        exit 1
+    }
     Write-Ok "$Distribution deregistriert"
     Remove-ResumeTask
     Remove-TerminalProfile
