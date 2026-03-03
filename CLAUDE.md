@@ -1,72 +1,76 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
 # wsl-ubuntu-powershell
 
-## Übersicht
 Automatisierungsscript zum Einrichten und Verwalten von Ubuntu unter WSL2 auf Windows.
-Ein PowerShell-Einstiegspunkt (`Setup-WSL.ps1`) steuert den gesamten Workflow,
-vom WSL2-Feature-Aktivieren bis zur vollständig konfigurierten Entwicklungsumgebung.
+Ein PowerShell-Einstiegspunkt steuert den gesamten Lifecycle; ein self-contained Bash-Script
+konfiguriert die Ubuntu-Umgebung innerhalb von WSL.
 
 ## Dateien
 
 | Datei | Zweck |
 |-------|-------|
-| `Setup-WSL.ps1` | **Haupt-Script** – alle WSL-Lifecycle-Operationen |
-| `ubuntu-wsl-setup.sh` | Ubuntu-Konfiguration (self-contained, wird von PS1 aufgerufen) |
-
-## Verwendung
-
-```powershell
-# Ubuntu installieren (WSL2-Features aktivieren + Ubuntu-24.04 installieren)
-.\Setup-WSL.ps1
-
-# Ubuntu-Entwicklungsumgebung konfigurieren (nach erstem Login)
-.\Setup-WSL.ps1 setup
-
-# Minimal-Setup (nur Basis + Git + Shell + SSH)
-.\Setup-WSL.ps1 setup -SetupMode minimal
-
-# Git-Daten vorbelegen
-.\Setup-WSL.ps1 setup -GitUserName "Max Mustermann" -GitUserEmail "max@example.com"
-
-# Ubuntu neu installieren (alle Daten gelöscht!)
-.\Setup-WSL.ps1 reset
-
-# WSL-Status anzeigen
-.\Setup-WSL.ps1 status
-
-# Alles simulieren ohne Änderungen
-.\Setup-WSL.ps1 install -DryRun
-.\Setup-WSL.ps1 setup -DryRun
-```
+| `Setup-WSL.ps1` | **Einziger Einstiegspunkt** – alle WSL-Lifecycle-Operationen |
+| `ubuntu-wsl-setup.sh` | Ubuntu-Konfiguration (self-contained, keine lib/-Abhängigkeiten) |
 
 ## Actions (Setup-WSL.ps1)
 
-| Action | Beschreibung |
-|--------|-------------|
-| `install` | WSL2-Features aktivieren, Ubuntu-24.04 installieren (Standard) |
-| `setup` | ubuntu-wsl-setup.sh in WSL ausführen |
-| `reset` | Ubuntu deregistrieren + neu installieren |
-| `uninstall` | Ubuntu deregistrieren |
-| `status` | WSL-Status + installierte Distros anzeigen |
+| Action | Parameter | Beschreibung |
+|--------|-----------|-------------|
+| `install` (Standard) | `-Distribution`, `-DryRun` | WSL2-Features aktivieren, Ubuntu installieren, Scheduled Task für Auto-Resume nach Reboot |
+| `setup` | `-SetupMode`, `-GitUserName`, `-GitUserEmail`, `-DryRun` | ubuntu-wsl-setup.sh in WSL ausführen |
+| `reset` | `-Distribution` | Ubuntu deregistrieren + sofort neu installieren |
+| `uninstall` | `-RemoveWSLFeatures` | Ubuntu deregistrieren, WT-Profile bereinigen; mit `-RemoveWSLFeatures` auch WSL2-Windows-Features deaktivieren (nur wenn keine anderen Distros vorhanden) |
+| `status` | – | WSL-Status + installierte Distros anzeigen |
 
 ## ubuntu-wsl-setup.sh – Modi
 
 | Modus | Installiert |
 |-------|-------------|
-| `--minimal` | System-Update, Basis-Pakete, Locale, wsl.conf, Git, Shell, SSH |
-| `--full` (Standard) | + CLI-Tools, Dev-Dependencies, Python+uv, Node.js+pnpm, tmux |
-
-## Anforderungen
-- Windows 10 Build 19041 (v2004) oder neuer / Windows 11
-- PowerShell 5.1+
-- Internet-Verbindung
-- Administrator-Rechte (für WSL-Feature-Aktivierung)
-
-## Konventionen
-- PowerShell: `Set-StrictMode -Version Latest`, PSScriptAnalyzer-kompatibel
-- Bash: `set -euo pipefail`, shellcheck-kompatibel
-- Dry-Run via `-DryRun` (PS) / `--dry-run` (Bash)
+| `--minimal` | System-Update, Basis-Pakete, Locale, wsl.conf, Git, Shell (zsh+Oh-My-Zsh), SSH |
+| `--full` (Standard) | + CLI-Tools (eza, zoxide, bat, fd, ripgrep, gh), Dev-Deps, Python+uv, Node.js+pnpm, tmux |
 
 ## Wichtige Befehle
-- Bash-Lint: `shellcheck ubuntu-wsl-setup.sh`
-- PS-Lint: `Invoke-ScriptAnalyzer -Path Setup-WSL.ps1`
-- Dry-Run: `.\Setup-WSL.ps1 install -DryRun`
+
+```powershell
+# Lint
+shellcheck ubuntu-wsl-setup.sh
+Invoke-ScriptAnalyzer -Path Setup-WSL.ps1
+
+# Dry-Run (kein Schreiben, zeigt alle Schritte)
+.\Setup-WSL.ps1 install -DryRun
+.\Setup-WSL.ps1 setup -DryRun
+.\Setup-WSL.ps1 uninstall -RemoveWSLFeatures -DryRun
+```
+
+## Architektur-Entscheidungen
+
+**Scheduled Task (WSL-Setup-Resume):**
+`install` registriert beim ersten Neustart-Bedarf automatisch einen `AtLogOn`-Task
+(erhöhte Rechte, aktueller User). Nach erfolgreichem Abschluss entfernt `Remove-ResumeTask`
+den Task. `reset` und `uninstall` räumen den Task ebenfalls auf.
+
+**Windows Terminal Profil-Cleanup:**
+`uninstall` entfernt manuell gespeicherte WT-Profile via `Remove-TerminalProfile`.
+Die Funktion parst `settings.json` beider WT-Varianten (Stable + Preview) nach
+`source=Windows.Terminal.Wsl`-Einträgen. Da settings.json JSONC ist, werden
+Kommentarzeilen vor `ConvertFrom-Json` gefiltert. Backup: `settings.json.bak`.
+
+**WSL-Feature-Deaktivierung:**
+Nur explizit via `-RemoveWSLFeatures` + nur wenn danach keine anderen Distros verbleiben.
+`reset` deaktiviert WSL-Features bewusst nicht (Reinstall folgt direkt).
+
+## Konventionen
+
+- PowerShell: `Set-StrictMode -Version Latest`, PSScriptAnalyzer-kompatibel
+- Bash: `set -euo pipefail`, shellcheck-kompatibel
+- Dry-Run: jede Funktion prüft `$DryRun` / `--dry-run` und schreibt nur `Write-Dim "[DRY-RUN] ..."` statt zu handeln
+- Farb-Ausgabe: `$Script:C`-Hashtable mit ANSI-Codes; Hilfsfunktionen `Write-Step/Ok/Warn/Err/Dim`
+
+## Anforderungen
+
+- Windows 10 Build 19041 (v2004) oder neuer / Windows 11
+- PowerShell 5.1+
+- Administrator-Rechte (für WSL-Feature-Aktivierung und Scheduled Tasks)
