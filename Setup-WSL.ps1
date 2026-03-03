@@ -364,6 +364,62 @@ function Reset-Ubuntu {
     Install-Ubuntu
 }
 
+function Remove-TerminalProfile {
+    Write-Step "Windows Terminal Profile fuer '$Distribution' bereinigen..."
+
+    $wtPaths = @(
+        "$env:LOCALAPPDATA\Packages\Microsoft.WindowsTerminal_8wekyb3d8bbwe\LocalState\settings.json",
+        "$env:LOCALAPPDATA\Packages\Microsoft.WindowsTerminalPreview_8wekyb3d8bbwe\LocalState\settings.json"
+    )
+
+    $found = $false
+    foreach ($settingsPath in $wtPaths) {
+        if (-not (Test-Path $settingsPath)) { continue }
+        $found = $true
+
+        if ($DryRun) {
+            Write-Dim "[DRY-RUN] Profil '$Distribution' aus $(Split-Path $settingsPath -Leaf) entfernen"
+            continue
+        }
+
+        try {
+            $raw = Get-Content $settingsPath -Raw -Encoding UTF8
+            # JSONC: Zeilen entfernen die nur Kommentare enthalten
+            $stripped = ($raw -split '\r?\n' |
+                Where-Object { $_ -notmatch '^\s*//' }) -join "`n"
+            $json = $stripped | ConvertFrom-Json
+
+            if (-not ($json.profiles.PSObject.Properties.Name -contains 'list')) {
+                Write-Dim "    keine Profil-Liste gefunden – uebersprungen"
+                continue
+            }
+
+            $before = @($json.profiles.list)
+            $after  = @($before | Where-Object {
+                -not ($_.source -eq 'Windows.Terminal.Wsl' -and
+                      $_.name   -like "*$Distribution*")
+            })
+
+            if ($after.Count -eq $before.Count) {
+                Write-Dim "    kein gespeichertes Profil fuer '$Distribution' gefunden"
+                continue
+            }
+
+            $json.profiles.list = $after
+            Copy-Item $settingsPath "$settingsPath.bak" -Force
+            $json | ConvertTo-Json -Depth 20 | Set-Content $settingsPath -Encoding UTF8
+            Write-Ok "$($before.Count - $after.Count) Profil(e) entfernt – Backup: $(Split-Path $settingsPath -Leaf).bak"
+        }
+        catch {
+            Write-Warn "settings.json nicht bearbeitbar: $_"
+        }
+    }
+
+    if (-not $found) {
+        Write-Dim "Windows Terminal nicht gefunden – kein Profil-Cleanup noetig"
+    }
+}
+
 function Remove-Ubuntu {
     Write-Step "$Distribution deinstallieren..."
 
@@ -381,6 +437,7 @@ function Remove-Ubuntu {
 
     if ($DryRun) {
         Write-Dim "[DRY-RUN] wsl --unregister $Distribution"
+        Remove-TerminalProfile
         if ($RemoveWSLFeatures) { Write-Dim "[DRY-RUN] Disable-WSLFeatures" }
         return
     }
@@ -388,6 +445,7 @@ function Remove-Ubuntu {
     wsl --unregister $Distribution
     Write-Ok "$Distribution deregistriert"
     Remove-ResumeTask
+    Remove-TerminalProfile
 
     if ($RemoveWSLFeatures) {
         Disable-WSLFeatures
