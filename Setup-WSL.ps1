@@ -101,7 +101,8 @@ function Write-Dim    ([string]$Msg) { Write-Host "$($Script:C.Dim)     $Msg$($S
 #region ── Banner ────────────────────────────────────────────────────────────
 
 function Show-Banner {
-    $dryLabel = if ($DryRun) { '  [DRY-RUN] Keine Aenderungen' } else { '' }
+    $dryLabel = ''
+    if ($DryRun) { $dryLabel = '  [DRY-RUN] Keine Aenderungen' }
     Write-Host @"
 $($Script:C.Cyan)
   ╔══════════════════════════════════════════════════════════╗
@@ -256,7 +257,7 @@ function Disable-WSLFeatures {
     # UTF-16 LE Encoding fuer wsl.exe Output in PS 5.1 setzen
     $prevEncoding = [Console]::OutputEncoding
     [Console]::OutputEncoding = [System.Text.Encoding]::Unicode
-    $remaining = wsl --list --quiet 2>&1 | Where-Object { $_.Trim() -ne '' }
+    $remaining = @(wsl --list --quiet 2>&1 | Where-Object { $_.Trim() -ne '' })
     [Console]::OutputEncoding = $prevEncoding
     if ($remaining.Count -gt 0) {
         Write-Warn "Weitere WSL-Distributionen vorhanden – WSL-Features bleiben aktiv:"
@@ -295,7 +296,7 @@ function Get-IsDistributionInstalled {
     [Console]::OutputEncoding = [System.Text.Encoding]::Unicode
     $list = wsl --list --quiet 2>&1
     [Console]::OutputEncoding = $prevEncoding
-    return ($list | Where-Object { $_.Trim() -eq $Distribution }).Count -gt 0
+    return @($list | Where-Object { $_.Trim() -eq $Distribution }).Count -gt 0
 }
 
 function Install-Ubuntu {
@@ -346,10 +347,10 @@ function Invoke-UbuntuSetup {
 
     # Windows-Pfad → WSL-Pfad konvertieren
     $resolved = (Resolve-Path $bashScript).Path
-    $wslPath = if ($resolved -match '^([A-Za-z]):(.+)$') {
-        '/mnt/' + $Matches[1].ToLower() + ($Matches[2] -replace '\\', '/')
+    if ($resolved -match '^([A-Za-z]):(.+)$') {
+        $wslPath = '/mnt/' + $Matches[1].ToLower() + ($Matches[2] -replace '\\', '/')
     } else {
-        $resolved -replace '\\', '/'
+        $wslPath = $resolved -replace '\\', '/'
     }
 
     # Argumente aufbauen
