@@ -186,6 +186,7 @@ function Invoke-ElevatedIfNeeded {
     if ($GitUserEmail)      { $argList += @("-GitUserEmail", "`"$GitUserEmail`"") }
     if ($SshKeyEmail)       { $argList += @("-SshKeyEmail",  "`"$SshKeyEmail`"") }
     if ($RemoveWSLFeatures) { $argList += "-RemoveWSLFeatures" }
+    if ($DryRun)           { $argList += "-DryRun" }
 
     Start-Process powershell.exe -Verb RunAs -ArgumentList $argList
     exit 0
@@ -228,10 +229,10 @@ function Enable-WSLFeatures {
 function Update-WSLKernel {
     Write-Step "WSL-Kernel auf aktuellen Stand bringen..."
     if ($DryRun) { Write-Dim "[DRY-RUN] wsl --update"; return }
-    try {
-        wsl --update 2>&1 | Out-Null
+    wsl --update 2>&1 | Out-Null
+    if ($LASTEXITCODE -eq 0) {
         Write-Ok "WSL-Kernel aktuell"
-    } catch {
+    } else {
         Write-Warn "WSL-Kernel-Update nicht moeglich (kein Internet oder nicht verfuegbar)"
     }
 }
@@ -240,7 +241,11 @@ function Set-WSLDefaultVersion {
     Write-Step "WSL2 als Standard-Version setzen..."
     if ($DryRun) { Write-Dim "[DRY-RUN] wsl --set-default-version 2"; return }
     wsl --set-default-version 2 2>&1 | Out-Null
-    Write-Ok "WSL2 als Standard gesetzt"
+    if ($LASTEXITCODE -eq 0) {
+        Write-Ok "WSL2 als Standard gesetzt"
+    } else {
+        Write-Warn "WSL2 als Standard-Version konnte nicht gesetzt werden"
+    }
 }
 
 function Disable-WSLFeatures {
@@ -348,6 +353,10 @@ function Invoke-UbuntuSetup {
     }
 
     wsl -d $Distribution bash -c "chmod +x '$wslPath' && bash '$wslPath' $setupArgs"
+    if ($LASTEXITCODE -ne 0) {
+        Write-Err "Ubuntu-Setup fehlgeschlagen (Exit-Code: $LASTEXITCODE)"
+        exit 1
+    }
     Write-Ok "Ubuntu-Setup abgeschlossen"
 }
 
@@ -404,8 +413,8 @@ function Remove-TerminalProfile {
                 continue
             }
 
-            $before = @($json.profiles.list)
-            $after  = @($before | Where-Object {
+            [object[]]$before = @($json.profiles.list)
+            [object[]]$after  = @($before | Where-Object {
                 -not ($_.source -eq 'Windows.Terminal.Wsl' -and
                       $_.name   -like "*$Distribution*")
             })
@@ -415,7 +424,7 @@ function Remove-TerminalProfile {
                 continue
             }
 
-            $json.profiles.list = $after
+            $json.profiles.list = [object[]]@($after)
             Copy-Item $settingsPath "$settingsPath.bak" -Force
             $json | ConvertTo-Json -Depth 20 | Set-Content $settingsPath -Encoding UTF8
             Write-Ok "$($before.Count - $after.Count) Profil(e) entfernt – Backup: $(Split-Path $settingsPath -Leaf).bak"
