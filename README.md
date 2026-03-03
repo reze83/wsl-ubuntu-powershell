@@ -7,7 +7,7 @@ Automatisiertes WSL2-Setup mit kuratierter Entwicklungsumgebung — von null auf
 [![Platform](https://img.shields.io/badge/Platform-Windows%2010%2F11-0078d4?logo=windows&logoColor=white)](https://docs.microsoft.com/windows/wsl/)
 [![PowerShell](https://img.shields.io/badge/PowerShell-5.1%2B-5391FE?logo=powershell&logoColor=white)](https://docs.microsoft.com/powershell/)
 [![WSL2](https://img.shields.io/badge/WSL2-Ubuntu%2024.04-E95420?logo=ubuntu&logoColor=white)](https://ubuntu.com/wsl)
-[![Bash](https://img.shields.io/badge/Bash-shellcheck%20clean-4EAA25?logo=gnubash&logoColor=white)](https://www.shellcheck.net/)
+[![ShellCheck](https://github.com/reze83/wsl-ubuntu-powershell/actions/workflows/lint.yml/badge.svg)](https://github.com/reze83/wsl-ubuntu-powershell/actions/workflows/lint.yml)
 [![License](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
 
 </div>
@@ -16,12 +16,12 @@ Automatisiertes WSL2-Setup mit kuratierter Entwicklungsumgebung — von null auf
 
 ## 🎬 Demo
 
-<!-- Terminal-Recording des Setup-Ablaufs (in Arbeit).
-     Erstellen mit VHS: https://github.com/charmbracelet/vhs
-     Dann: ![Demo](docs/demo.gif) hier einfügen. -->
+<!-- Demo-GIF hier einfügen, sobald aufgenommen:
+     ![Demo](docs/demo.gif)
+     Aufnehmen mit: vhs demo.tape  (benötigt: https://github.com/charmbracelet/vhs) -->
 
 > [!NOTE]
-> **Demo-Recording folgt.** Ablauf: `.\Setup-WSL.ps1 install` → Neustart → `.\Setup-WSL.ps1 setup`
+> **Demo-Recording folgt.** `demo.tape` liegt bereit — einfach `vhs demo.tape` ausführen, sobald VHS installiert ist.
 
 ---
 
@@ -35,6 +35,7 @@ Automatisiertes WSL2-Setup mit kuratierter Entwicklungsumgebung — von null auf
 - [🔨 Nach dem Setup](#-nach-dem-setup)
 - [🏗️ Architektur](#️-architektur)
 - [🧰 Linting](#-linting)
+- [🤝 Beitragen](#-beitragen)
 - [📄 License](#-license)
 
 ---
@@ -320,6 +321,20 @@ shellcheck ubuntu-wsl-validate.sh
 Invoke-ScriptAnalyzer -Path Setup-WSL.ps1
 # PSScriptAnalyzer auf Linux: pwsh via sudo apt install powershell
 ```
+
+---
+
+## 🤝 Beitragen
+
+Beiträge sind willkommen! Kurze Hinweise:
+
+1. **Fork** + Feature-Branch (`feat/dein-feature`)
+2. **Linting:** `shellcheck ubuntu-wsl-setup.sh ubuntu-wsl-validate.sh` muss 0 Fehler liefern
+3. **Tests:** `ubuntu-wsl-validate.sh` nach Änderungen an `ubuntu-wsl-setup.sh` ausführen
+4. **Commits:** [Conventional Commits](https://www.conventionalcommits.org/) verwenden
+5. **Pull Request:** kurze Beschreibung was und warum
+
+Bug-Reports und Feature-Requests als [GitHub Issue](https://github.com/reze83/wsl-ubuntu-powershell/issues).
 
 ---
 

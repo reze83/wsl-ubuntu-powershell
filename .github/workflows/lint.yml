@@ -1,0 +1,21 @@
+name: Lint
+
+on:
+  push:
+    paths:
+      - '*.sh'
+      - '.github/workflows/*.yml'
+  pull_request:
+    paths:
+      - '*.sh'
+      - '.github/workflows/*.yml'
+
+jobs:
+  shellcheck:
+    name: ShellCheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run ShellCheck
+        run: shellcheck ubuntu-wsl-setup.sh ubuntu-wsl-validate.sh
