@@ -416,15 +416,19 @@ alias lt="eza --tree --level=2"'
 
 _install_zoxide() {
   command -v zoxide &>/dev/null && { print_success "zoxide bereits vorhanden"; return; }
-  if curl -fsSL https://raw.githubusercontent.com/ajeetdsouza/zoxide/main/install.sh | bash 2>/dev/null; then
-    print_success "zoxide installiert"
+  local tmp; tmp=$(mktemp)
+  if curl -fsSL https://raw.githubusercontent.com/ajeetdsouza/zoxide/main/install.sh \
+      -o "$tmp" 2>/dev/null \
+      && bash "$tmp" 2>/dev/null; then
     # shellcheck disable=SC2016
     append_if_missing "$BASHRC_PATH" "# wsl-setup:zoxide" \
 '# wsl-setup:zoxide
 eval "$(zoxide init bash)"'
+    print_success "zoxide installiert"
   else
     print_warning "zoxide: Installation fehlgeschlagen – uebersprungen"
   fi
+  rm -f "$tmp"
 }
 
 _install_gh_cli() {
@@ -544,11 +548,15 @@ setup_python() {
     python3 python3-pip python3-venv python3-dev 2>/dev/null
 
   if ! command -v uv &>/dev/null; then
-    if curl -fsSL https://astral.sh/uv/install.sh | bash 2>/dev/null; then
+    local uv_tmp; uv_tmp=$(mktemp)
+    if curl -fsSL https://astral.sh/uv/install.sh \
+        -o "$uv_tmp" 2>/dev/null \
+        && bash "$uv_tmp" 2>/dev/null; then
       print_success "uv installiert"
     else
       print_warning "uv: Installation fehlgeschlagen – uebersprungen"
     fi
+    rm -f "$uv_tmp"
   fi
 
   # pip-Konfiguration: kein break-system-packages noetig
@@ -576,10 +584,17 @@ setup_nodejs() {
   local nvm_dir="$HOME/.nvm"
 
   if [[ ! -s "$nvm_dir/nvm.sh" ]]; then
-    curl -fsSL "https://raw.githubusercontent.com/nvm-sh/nvm/v${NVM_VERSION}/install.sh" \
-      | bash 2>/dev/null \
-      || { print_warning "nvm: Installation fehlgeschlagen – uebersprungen"; return; }
-    print_success "nvm ${NVM_VERSION} installiert"
+    local nvm_tmp; nvm_tmp=$(mktemp)
+    if curl -fsSL "https://raw.githubusercontent.com/nvm-sh/nvm/v${NVM_VERSION}/install.sh" \
+        -o "$nvm_tmp" 2>/dev/null \
+        && bash "$nvm_tmp" 2>/dev/null; then
+      print_success "nvm ${NVM_VERSION} installiert"
+    else
+      rm -f "$nvm_tmp"
+      print_warning "nvm: Installation fehlgeschlagen – uebersprungen"
+      return
+    fi
+    rm -f "$nvm_tmp"
   fi
 
   export NVM_DIR="$nvm_dir"
@@ -661,6 +676,82 @@ set -g window-status-current-style 'fg=#1e1e2e bg=#89b4fa bold'
 bind r source-file ~/.tmux.conf \; display "~/.tmux.conf neu geladen"
 EOF
   print_success "$HOME/.tmux.conf erstellt"
+}
+
+#-------------------------------------------------------------------------------
+# zsh + Oh-My-Zsh
+#-------------------------------------------------------------------------------
+setup_zsh() {
+  print_step "zsh + Oh-My-Zsh + Plugins einrichten..."
+  if [[ "$DRY_RUN" == true ]]; then
+    print_dim "[DRY-RUN] zsh, Oh-My-Zsh, zsh-autosuggestions, zsh-syntax-highlighting, .zshrc, chsh"
+    return
+  fi
+
+  # zsh installieren
+  if ! command -v zsh &>/dev/null; then
+    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq zsh
+  fi
+
+  # Oh-My-Zsh installieren (falls noch nicht vorhanden)
+  if [[ ! -d "$HOME/.oh-my-zsh" ]]; then
+    local omz_tmp
+    omz_tmp=$(mktemp)
+    if curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh \
+        -o "$omz_tmp" 2>/dev/null; then
+      RUNZSH=no CHSH=no sh "$omz_tmp" \
+        || print_warning "Oh-My-Zsh: Installation fehlgeschlagen"
+    else
+      print_warning "Oh-My-Zsh: Download fehlgeschlagen – uebersprungen"
+    fi
+    rm -f "$omz_tmp"
+  fi
+
+  # Plugins klonen
+  local zsh_custom="${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}"
+  if [[ ! -d "$zsh_custom/plugins/zsh-autosuggestions" ]]; then
+    git clone --depth=1 https://github.com/zsh-users/zsh-autosuggestions \
+      "$zsh_custom/plugins/zsh-autosuggestions" 2>/dev/null \
+      || print_warning "zsh-autosuggestions: Klonen fehlgeschlagen"
+  fi
+  if [[ ! -d "$zsh_custom/plugins/zsh-syntax-highlighting" ]]; then
+    git clone --depth=1 https://github.com/zsh-users/zsh-syntax-highlighting \
+      "$zsh_custom/plugins/zsh-syntax-highlighting" 2>/dev/null \
+      || print_warning "zsh-syntax-highlighting: Klonen fehlgeschlagen"
+  fi
+
+  # .zshrc konfigurieren
+  local zshrc="$HOME/.zshrc"
+  if [[ -f "$zshrc" ]]; then
+    # Plugins aktivieren (idempotent via Grep-Check)
+    if ! grep -qF "zsh-autosuggestions" "$zshrc"; then
+      sed -i 's/^plugins=(.*)/plugins=(git zsh-autosuggestions zsh-syntax-highlighting)/' "$zshrc"
+    fi
+    # ~/.local/bin in PATH
+    # shellcheck disable=SC2016
+    append_if_missing "$zshrc" "# wsl-setup:zsh-path" \
+'# wsl-setup:zsh-path
+export PATH="$HOME/.local/bin:$PATH"'
+    # nvm einbinden (falls installiert)
+    if [[ -d "$HOME/.nvm" ]]; then
+      # shellcheck disable=SC2016
+      append_if_missing "$zshrc" "# wsl-setup:nvm-zsh" \
+'# wsl-setup:nvm-zsh
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"'
+    fi
+  fi
+
+  # Als Default-Shell setzen
+  local zsh_bin; zsh_bin=$(command -v zsh)
+  local current_shell; current_shell=$(getent passwd "$USER" | cut -d: -f7)
+  if [[ "$current_shell" != "$zsh_bin" ]]; then
+    sudo chsh -s "$zsh_bin" "$USER"
+  fi
+
+  local zsh_ver; zsh_ver=$(zsh --version 2>/dev/null | cut -d' ' -f2 || echo "?")
+  print_success "zsh $zsh_ver + Oh-My-Zsh + Plugins eingerichtet"
 }
 
 #-------------------------------------------------------------------------------
@@ -819,6 +910,7 @@ show_dry_run_plan() {
     echo "   18. tmux-Konfiguration (~/.tmux.conf)"
     echo "   19. pwsh (PowerShell Core, via Microsoft apt-Repo)"
     echo "   20. yq, lazygit (via GitHub Releases)"
+    echo "   21. zsh + Oh-My-Zsh + Plugins (zsh-autosuggestions, zsh-syntax-highlighting)"
   fi
 
   echo ""
@@ -857,6 +949,8 @@ EOF
   if [[ "$INSTALL_MODE" == "$MODE_FULL" ]]; then
     printf '    %b+%b CLI-Tools (ripgrep, fd, bat, eza, zoxide, fzf, gh, git-delta, direnv, pwsh, yq, lazygit)\n' "$GREEN" "$NC"
     printf '    %b+%b Dev-Dependencies, Browser-Integration, tmux\n' "$GREEN" "$NC"
+    [[ -d "$HOME/.oh-my-zsh" ]] && \
+      printf '    %b+%b zsh + Oh-My-Zsh (zsh-autosuggestions, zsh-syntax-highlighting)\n' "$GREEN" "$NC"
   fi
 
   printf '\n  Naechste Schritte:\n\n'
@@ -940,6 +1034,7 @@ main() {
     setup_python
     setup_nodejs
     setup_tmux
+    setup_zsh
   fi
 
   log "=== Setup beendet ==="
