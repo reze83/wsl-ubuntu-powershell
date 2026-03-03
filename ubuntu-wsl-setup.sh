@@ -403,7 +403,7 @@ _install_eza() {
   command -v eza &>/dev/null && { print_success "eza bereits vorhanden"; return; }
   local tmp; tmp=$(mktemp -d)
   local url="https://github.com/eza-community/eza/releases/latest/download/eza_x86_64-unknown-linux-gnu.tar.gz"
-  if curl -fsSL "$url" -o "$tmp/eza.tar.gz" 2>/dev/null; then
+  if curl -fsSL --connect-timeout 30 --max-time 300 "$url" -o "$tmp/eza.tar.gz" 2>/dev/null; then
     tar xzf "$tmp/eza.tar.gz" -C "$tmp" 2>/dev/null
     install -m 755 "$tmp/eza" "$LOCAL_BIN_DIR/eza"
     print_success "eza installiert"
@@ -423,7 +423,8 @@ alias lt="eza --tree --level=2"'
 _install_zoxide() {
   command -v zoxide &>/dev/null && { print_success "zoxide bereits vorhanden"; return; }
   local tmp; tmp=$(mktemp)
-  if curl -fsSL https://raw.githubusercontent.com/ajeetdsouza/zoxide/main/install.sh \
+  if curl -fsSL --connect-timeout 30 --max-time 120 \
+      https://raw.githubusercontent.com/ajeetdsouza/zoxide/main/install.sh \
       -o "$tmp" 2>/dev/null \
       && bash "$tmp" 2>/dev/null; then
     # shellcheck disable=SC2016
@@ -440,7 +441,8 @@ eval "$(zoxide init bash)"'
 _install_gh_cli() {
   command -v gh &>/dev/null && { print_success "gh bereits vorhanden"; return; }
   local keyring='/etc/apt/keyrings/githubcli-archive-keyring.gpg'
-  if curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+  if curl -fsSL --connect-timeout 30 --max-time 60 \
+      https://cli.github.com/packages/githubcli-archive-keyring.gpg \
       | sudo dd of="$keyring" 2>/dev/null \
     && sudo chmod go+r "$keyring" \
     && echo "deb [arch=$(dpkg --print-architecture) signed-by=$keyring] \
@@ -461,7 +463,7 @@ _install_pwsh() {
   local tmp_deb
   tmp_deb=$(mktemp --suffix=.deb)
   local deb_url="https://packages.microsoft.com/config/ubuntu/${ubuntu_version}/packages-microsoft-prod.deb"
-  if curl -fsSL "$deb_url" -o "$tmp_deb" 2>/dev/null \
+  if curl -fsSL --connect-timeout 30 --max-time 120 "$deb_url" -o "$tmp_deb" 2>/dev/null \
     && sudo dpkg -i "$tmp_deb" 2>/dev/null \
     && sudo apt-get update -qq \
     && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq powershell; then
@@ -476,7 +478,7 @@ _install_yq() {
   command -v yq &>/dev/null && { print_success "yq bereits vorhanden"; return; }
   local url="https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64"
   local tmp; tmp=$(mktemp)
-  if curl -fsSL "$url" -o "$tmp" 2>/dev/null; then
+  if curl -fsSL --connect-timeout 30 --max-time 300 "$url" -o "$tmp" 2>/dev/null; then
     install -m 755 "$tmp" "$LOCAL_BIN_DIR/yq"
     print_success "yq $("$LOCAL_BIN_DIR/yq" --version 2>/dev/null | awk '{print $NF}') installiert"
   else
@@ -488,15 +490,16 @@ _install_yq() {
 _install_lazygit() {
   command -v lazygit &>/dev/null && { print_success "lazygit bereits vorhanden"; return; }
   local version
-  version=$(curl -fsSL "https://api.github.com/repos/jesseduffield/lazygit/releases/latest" \
-    | grep '"tag_name"' | cut -d'"' -f4 | sed 's/^v//')
+  version=$(curl -fsSL --connect-timeout 30 --max-time 60 \
+    "https://api.github.com/repos/jesseduffield/lazygit/releases/latest" 2>/dev/null \
+    | grep '"tag_name"' | cut -d'"' -f4 | sed 's/^v//' || true)
   if [[ -z "$version" ]]; then
     print_warning "lazygit: Version nicht ermittelbar – uebersprungen"
     return
   fi
   local tmp; tmp=$(mktemp -d)
   local url="https://github.com/jesseduffield/lazygit/releases/download/v${version}/lazygit_${version}_Linux_x86_64.tar.gz"
-  if curl -fsSL "$url" -o "$tmp/lazygit.tar.gz" 2>/dev/null; then
+  if curl -fsSL --connect-timeout 30 --max-time 300 "$url" -o "$tmp/lazygit.tar.gz" 2>/dev/null; then
     tar xzf "$tmp/lazygit.tar.gz" -C "$tmp" lazygit 2>/dev/null
     install -m 755 "$tmp/lazygit" "$LOCAL_BIN_DIR/lazygit"
     print_success "lazygit ${version} installiert"
@@ -555,7 +558,7 @@ setup_python() {
 
   if ! command -v uv &>/dev/null; then
     local uv_tmp; uv_tmp=$(mktemp)
-    if curl -fsSL https://astral.sh/uv/install.sh \
+    if curl -fsSL --connect-timeout 30 --max-time 120 https://astral.sh/uv/install.sh \
         -o "$uv_tmp" 2>/dev/null \
         && bash "$uv_tmp" 2>/dev/null; then
       print_success "uv installiert"
@@ -591,7 +594,8 @@ setup_nodejs() {
 
   if [[ ! -s "$nvm_dir/nvm.sh" ]]; then
     local nvm_tmp; nvm_tmp=$(mktemp)
-    if curl -fsSL "https://raw.githubusercontent.com/nvm-sh/nvm/v${NVM_VERSION}/install.sh" \
+    if curl -fsSL --connect-timeout 30 --max-time 120 \
+        "https://raw.githubusercontent.com/nvm-sh/nvm/v${NVM_VERSION}/install.sh" \
         -o "$nvm_tmp" 2>/dev/null \
         && bash "$nvm_tmp" 2>/dev/null; then
       print_success "nvm ${NVM_VERSION} installiert"
@@ -620,7 +624,7 @@ setup_nodejs() {
   fi
 
   local node_ver
-  node_ver=$(node --version 2>/dev/null)
+  node_ver=$(node --version 2>/dev/null || echo "unbekannt")
   print_success "Node.js $node_ver + pnpm"
 }
 
@@ -705,9 +709,10 @@ setup_zsh() {
   if [[ ! -d "$HOME/.oh-my-zsh" ]]; then
     local omz_tmp
     omz_tmp=$(mktemp)
-    if curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh \
+    if curl -fsSL --connect-timeout 30 --max-time 120 \
+        https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh \
         -o "$omz_tmp" 2>/dev/null; then
-      RUNZSH=no CHSH=no sh "$omz_tmp" \
+      RUNZSH=no CHSH=no bash "$omz_tmp" \
         || print_warning "Oh-My-Zsh: Installation fehlgeschlagen"
     else
       print_warning "Oh-My-Zsh: Download fehlgeschlagen – uebersprungen"
@@ -755,7 +760,8 @@ export NVM_DIR="$HOME/.nvm"
   local zsh_bin; zsh_bin=$(command -v zsh)
   local current_shell; current_shell=$(getent passwd "$USER" | cut -d: -f7)
   if [[ "$current_shell" != "$zsh_bin" ]]; then
-    sudo chsh -s "$zsh_bin" "$USER"
+    sudo chsh -s "$zsh_bin" "$USER" \
+      || print_warning "chsh fehlgeschlagen – Shell manuell aendern: chsh -s $zsh_bin"
   fi
 
   local zsh_ver; zsh_ver=$(zsh --version 2>/dev/null | cut -d' ' -f2 || echo "?")
