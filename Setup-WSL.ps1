@@ -124,9 +124,9 @@ function Register-ResumeTask {
     if ($DryRun) { Write-Dim "[DRY-RUN] Register-ResumeTask"; return }
     $argList = "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`" install" +
                " -Distribution $Distribution -SetupMode $SetupMode"
-    if ($GitUserName)  { $argList += " -GitUserName '" + ($GitUserName  -replace "'", "''") + "'" }
-    if ($GitUserEmail) { $argList += " -GitUserEmail '" + ($GitUserEmail -replace "'", "''") + "'" }
-    if ($SshKeyEmail)  { $argList += " -SshKeyEmail '" + ($SshKeyEmail  -replace "'", "''") + "'" }
+    if ($GitUserName)  { $argList += ' -GitUserName "'  + ($GitUserName  -replace '"', '""') + '"' }
+    if ($GitUserEmail) { $argList += ' -GitUserEmail "' + ($GitUserEmail -replace '"', '""') + '"' }
+    if ($SshKeyEmail)  { $argList += ' -SshKeyEmail "'  + ($SshKeyEmail  -replace '"', '""') + '"' }
 
     $action    = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $argList
     $trigger   = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
@@ -184,10 +184,11 @@ function Invoke-ElevatedIfNeeded {
 
     $argList = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "`"$PSCommandPath`"", $Action)
     $argList += @("-Distribution", $Distribution, "-SetupMode", $SetupMode)
-    if ($GitUserName)  { $argList += @("-GitUserName",  "'" + ($GitUserName  -replace "'", "''") + "'") }
-    if ($GitUserEmail) { $argList += @("-GitUserEmail", "'" + ($GitUserEmail -replace "'", "''") + "'") }
-    if ($SshKeyEmail)  { $argList += @("-SshKeyEmail",  "'" + ($SshKeyEmail  -replace "'", "''") + "'") }
+    if ($GitUserName)  { $argList += @("-GitUserName",  '"' + ($GitUserName  -replace '"', '""') + '"') }
+    if ($GitUserEmail) { $argList += @("-GitUserEmail", '"' + ($GitUserEmail -replace '"', '""') + '"') }
+    if ($SshKeyEmail)  { $argList += @("-SshKeyEmail",  '"' + ($SshKeyEmail  -replace '"', '""') + '"') }
     if ($RemoveWSLFeatures) { $argList += "-RemoveWSLFeatures" }
+    if ($DryRun) { $argList += "-DryRun" }
 
     Start-Process powershell.exe -Verb RunAs -ArgumentList $argList
     exit 0
@@ -290,7 +291,14 @@ function Disable-WSLFeatures {
 
     Write-Warn "Neustart erforderlich, um WSL-Features vollstaendig zu entfernen."
     $answer = Read-Host "  Jetzt neu starten? [J/n]"
-    if ($answer -match '^[jJyY]?$') { Restart-Computer -Force }
+    if ($answer -match '^[jJyY]?$') {
+        try {
+            Restart-Computer -Force -ErrorAction Stop
+        } catch {
+            Write-Err "Neustart fehlgeschlagen: $_"
+            Write-Warn "Bitte manuell neu starten."
+        }
+    }
 }
 
 #endregion
