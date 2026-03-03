@@ -14,6 +14,31 @@ Automatisiertes WSL2-Setup mit kuratierter Entwicklungsumgebung — von null auf
 
 ---
 
+## 🎬 Demo
+
+<!-- Terminal-Recording des Setup-Ablaufs (in Arbeit).
+     Erstellen mit VHS: https://github.com/charmbracelet/vhs
+     Dann: ![Demo](docs/demo.gif) hier einfügen. -->
+
+> [!NOTE]
+> **Demo-Recording folgt.** Ablauf: `.\Setup-WSL.ps1 install` → Neustart → `.\Setup-WSL.ps1 setup`
+
+---
+
+## 📋 Inhaltsverzeichnis
+
+- [✨ Features](#-features)
+- [📋 Voraussetzungen](#-voraussetzungen)
+- [🚀 Quick Start](#-quick-start)
+- [📖 Usage](#-usage)
+- [⚙️ Ubuntu Setup — Modi](#️-ubuntu-setup--modi)
+- [🔨 Nach dem Setup](#-nach-dem-setup)
+- [🏗️ Architektur](#️-architektur)
+- [🧰 Linting](#-linting)
+- [📄 License](#-license)
+
+---
+
 ## ✨ Features
 
 - **Ein Einstiegspunkt** — `Setup-WSL.ps1` steuert den gesamten Lifecycle (install → setup → reset → uninstall)
@@ -233,23 +258,19 @@ cat ~/.wsl-setup.log
 
 ## 🏗️ Architektur
 
-```
-Windows (PowerShell)              WSL (Bash)
-─────────────────────             ──────────────────────
-Setup-WSL.ps1
- ├─ install                       ubuntu-wsl-setup.sh
- │   ├─ Enable WSL Features            ├─ system_update
- │   ├─ Install Ubuntu                 ├─ install_base_packages
- │   └─ [Auto-Resume Task]             ├─ setup_git
- │                                     ├─ setup_shell
- └─ setup                              ├─ [--full only:]
-     └─ wsl -d Ubuntu-24.04            │   ├─ install_cli_tools
-          bash ubuntu-wsl-setup.sh     │   ├─ setup_python
-          [--full] [--dry-run] [...]   │   ├─ setup_nodejs
-                                       │   ├─ setup_tmux
-                                       │   └─ setup_zsh
-                                       ├─ [offer gh auth login]
-                                       └─ [offer passwordless sudo]
+```mermaid
+flowchart TD
+    A["Setup-WSL.ps1 install"] --> B["WSL2-Features aktivieren\nUbuntu 24.04 installieren"]
+    B --> C{Neustart\nnötig?}
+    C -->|ja| D["Scheduled Task registrieren\nWSL-Setup-Resume"]
+    D -->|nach Reboot| E
+    C -->|nein| E["Setup-WSL.ps1 setup"]
+    E --> F["ubuntu-wsl-setup.sh"]
+    F --> G["--minimal\nSystem · Locale · wsl.conf\nGit · Shell · SSH"]
+    F --> H["--full = minimal +\nCLI-Tools · Python · Node.js\nzsh + Oh-My-Zsh · pwsh"]
+    H --> I["Interaktiv:\ngh auth login\nPasswordless sudo"]
+    G --> J["✅ Fertig"]
+    I --> J
 ```
 
 Beide Dateien müssen im **selben Verzeichnis** liegen — `Setup-WSL.ps1` verwendet `$PSScriptRoot` als Referenzpfad.
