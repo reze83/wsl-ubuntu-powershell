@@ -288,8 +288,11 @@ export PATH="$HOME/.local/bin:$PATH"'
 setup_inputrc() {
   print_step "Readline konfigurieren (~/.inputrc)..."
   if [[ "$DRY_RUN" == true ]]; then print_dim "[DRY-RUN] ~/.inputrc erstellen"; return; fi
-  [[ -f "$HOME/.inputrc" ]] && cp "$HOME/.inputrc" "$HOME/.inputrc.bak" \
-    && print_dim "Backup: ~/.inputrc.bak"
+  if [[ -f "$HOME/.inputrc" ]]; then
+    local ts; ts=$(date +%Y%m%d-%H%M%S)
+    cp "$HOME/.inputrc" "$HOME/.inputrc.${ts}.bak"
+    print_dim "Backup: ~/.inputrc.${ts}.bak"
+  fi
   cat > "$HOME/.inputrc" <<'EOF'
 # History-Suche mit Pfeiltasten
 "\e[A": history-search-backward
@@ -402,18 +405,22 @@ install_cli_tools() {
 _install_eza() {
   command -v eza &>/dev/null && { print_success "eza bereits vorhanden"; return; }
   local tmp; tmp=$(mktemp -d)
-  local url="https://github.com/eza-community/eza/releases/latest/download/eza_x86_64-unknown-linux-gnu.tar.gz"
+  local arch; arch=$(uname -m)
+  local url="https://github.com/eza-community/eza/releases/latest/download/eza_${arch}-unknown-linux-gnu.tar.gz"
   if curl -fsSL --connect-timeout 30 --max-time 300 "$url" -o "$tmp/eza.tar.gz" 2>/dev/null; then
-    tar xzf "$tmp/eza.tar.gz" -C "$tmp" 2>/dev/null
-    install -m 755 "$tmp/eza" "$LOCAL_BIN_DIR/eza"
-    print_success "eza installiert"
-    # ls-Aliases auf eza umstellen
-    append_if_missing "$BASHRC_PATH" "# wsl-setup:eza" \
+    if tar xzf "$tmp/eza.tar.gz" -C "$tmp" 2>/dev/null \
+        && install -m 755 "$tmp/eza" "$LOCAL_BIN_DIR/eza"; then
+      print_success "eza installiert"
+      # ls-Aliases auf eza umstellen
+      append_if_missing "$BASHRC_PATH" "# wsl-setup:eza" \
 '# wsl-setup:eza
 alias ls="eza --color=auto --group-directories-first"
 alias ll="eza -alFh --git --group-directories-first"
 alias la="eza -ah --group-directories-first"
 alias lt="eza --tree --level=2"'
+    else
+      print_warning "eza: Entpacken fehlgeschlagen – uebersprungen"
+    fi
   else
     print_warning "eza: Download fehlgeschlagen – uebersprungen"
   fi
@@ -441,10 +448,11 @@ eval "$(zoxide init bash)"'
 _install_gh_cli() {
   command -v gh &>/dev/null && { print_success "gh bereits vorhanden"; return; }
   local keyring='/etc/apt/keyrings/githubcli-archive-keyring.gpg'
+  local gpg_tmp; gpg_tmp=$(mktemp)
   if curl -fsSL --connect-timeout 30 --max-time 60 \
       https://cli.github.com/packages/githubcli-archive-keyring.gpg \
-      | sudo dd of="$keyring" 2>/dev/null \
-    && sudo chmod go+r "$keyring" \
+      -o "$gpg_tmp" 2>/dev/null \
+    && sudo install -m 644 "$gpg_tmp" "$keyring" \
     && echo "deb [arch=$(dpkg --print-architecture) signed-by=$keyring] \
 https://cli.github.com/packages stable main" \
         | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
@@ -454,6 +462,7 @@ https://cli.github.com/packages stable main" \
   else
     print_warning "gh: Installation fehlgeschlagen – uebersprungen"
   fi
+  rm -f "$gpg_tmp"
 }
 
 _install_pwsh() {
@@ -476,7 +485,8 @@ _install_pwsh() {
 
 _install_yq() {
   command -v yq &>/dev/null && { print_success "yq bereits vorhanden"; return; }
-  local url="https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64"
+  local arch; arch=$(dpkg --print-architecture)
+  local url="https://github.com/mikefarah/yq/releases/latest/download/yq_linux_${arch}"
   local tmp; tmp=$(mktemp)
   if curl -fsSL --connect-timeout 30 --max-time 300 "$url" -o "$tmp" 2>/dev/null; then
     install -m 755 "$tmp" "$LOCAL_BIN_DIR/yq"
@@ -498,7 +508,10 @@ _install_lazygit() {
     return
   fi
   local tmp; tmp=$(mktemp -d)
-  local url="https://github.com/jesseduffield/lazygit/releases/download/v${version}/lazygit_${version}_Linux_x86_64.tar.gz"
+  local arch; arch=$(uname -m)
+  # lazygit nutzt "arm64" statt "aarch64" fuer ARM-Releases
+  [[ "$arch" == "aarch64" ]] && arch="arm64"
+  local url="https://github.com/jesseduffield/lazygit/releases/download/v${version}/lazygit_${version}_Linux_${arch}.tar.gz"
   if curl -fsSL --connect-timeout 30 --max-time 300 "$url" -o "$tmp/lazygit.tar.gz" 2>/dev/null; then
     tar xzf "$tmp/lazygit.tar.gz" -C "$tmp" lazygit 2>/dev/null
     install -m 755 "$tmp/lazygit" "$LOCAL_BIN_DIR/lazygit"
@@ -634,8 +647,11 @@ setup_nodejs() {
 setup_tmux() {
   print_step "tmux konfigurieren (~/.tmux.conf)..."
   if [[ "$DRY_RUN" == true ]]; then print_dim "[DRY-RUN] ~/.tmux.conf erstellen"; return; fi
-  [[ -f "$HOME/.tmux.conf" ]] && cp "$HOME/.tmux.conf" "$HOME/.tmux.conf.bak" \
-    && print_dim "Backup: ~/.tmux.conf.bak"
+  if [[ -f "$HOME/.tmux.conf" ]]; then
+    local ts; ts=$(date +%Y%m%d-%H%M%S)
+    cp "$HOME/.tmux.conf" "$HOME/.tmux.conf.${ts}.bak"
+    print_dim "Backup: ~/.tmux.conf.${ts}.bak"
+  fi
 
   cat > "$HOME/.tmux.conf" <<'EOF'
 # Prefix: Ctrl+a (wie GNU screen)
@@ -723,12 +739,14 @@ setup_zsh() {
   # Plugins klonen
   local zsh_custom="${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}"
   if [[ ! -d "$zsh_custom/plugins/zsh-autosuggestions" ]]; then
-    git clone --depth=1 https://github.com/zsh-users/zsh-autosuggestions \
+    GIT_TERMINAL_PROMPT=0 git clone --depth=1 \
+      https://github.com/zsh-users/zsh-autosuggestions \
       "$zsh_custom/plugins/zsh-autosuggestions" 2>/dev/null \
       || print_warning "zsh-autosuggestions: Klonen fehlgeschlagen"
   fi
   if [[ ! -d "$zsh_custom/plugins/zsh-syntax-highlighting" ]]; then
-    git clone --depth=1 https://github.com/zsh-users/zsh-syntax-highlighting \
+    GIT_TERMINAL_PROMPT=0 git clone --depth=1 \
+      https://github.com/zsh-users/zsh-syntax-highlighting \
       "$zsh_custom/plugins/zsh-syntax-highlighting" 2>/dev/null \
       || print_warning "zsh-syntax-highlighting: Klonen fehlgeschlagen"
   fi
@@ -1014,6 +1032,8 @@ offer_gh_auth_login() {
 #-------------------------------------------------------------------------------
 main() {
   parse_args "$@"
+  : > "$LOG_FILE"
+  log "=== Setup gestartet: $INSTALL_MODE ==="
   show_banner
   preflight_checks
   collect_identity_inputs
@@ -1025,8 +1045,8 @@ main() {
     exit 0
   fi
 
-  : > "$LOG_FILE"
-  log "=== Setup gestartet: $INSTALL_MODE ==="
+  # sudo-Keepalive: verhindert Credential-Verfall (Standard: 15 Min) bei langem Setup
+  ( while true; do sleep 59; sudo -v 2>/dev/null || break; done ) & disown
 
   # Basis (beide Modi)
   system_update

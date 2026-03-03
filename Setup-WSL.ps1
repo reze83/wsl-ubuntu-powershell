@@ -133,12 +133,16 @@ function Register-ResumeTask {
     $settings  = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 30)
     $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -RunLevel Highest
 
-    Register-ScheduledTask -TaskName $Script:TaskName `
-        -Action $action -Trigger $trigger `
-        -Settings $settings -Principal $principal `
-        -Description 'WSL2 Setup nach Neustart fortsetzen' -Force | Out-Null
-
-    Write-Ok "Resume-Task registriert – Setup wird nach Neustart automatisch fortgesetzt"
+    try {
+        Register-ScheduledTask -TaskName $Script:TaskName `
+            -Action $action -Trigger $trigger `
+            -Settings $settings -Principal $principal `
+            -Description 'WSL2 Setup nach Neustart fortsetzen' -Force | Out-Null
+        Write-Ok "Resume-Task registriert – Setup wird nach Neustart automatisch fortgesetzt"
+    } catch {
+        Write-Warn "Resume-Task konnte nicht registriert werden: $_"
+        Write-Warn "Nach Neustart manuell fortsetzen: .\Setup-WSL.ps1 setup -Distribution $Distribution"
+    }
 }
 
 function Remove-ResumeTask {
@@ -189,7 +193,12 @@ function Invoke-ElevatedIfNeeded {
     if ($SshKeyEmail)  { $argList += @("-SshKeyEmail",  '"' + ($SshKeyEmail  -replace '"', '""') + '"') }
     if ($RemoveWSLFeatures) { $argList += "-RemoveWSLFeatures" }
 
-    Start-Process powershell.exe -Verb RunAs -ArgumentList $argList
+    try {
+        Start-Process powershell.exe -Verb RunAs -ArgumentList $argList
+    } catch {
+        Write-Err "UAC-Elevation fehlgeschlagen oder abgebrochen: $_"
+        exit 1
+    }
     exit 0
 }
 
@@ -459,9 +468,11 @@ function Remove-TerminalProfile {
             }
 
             $json.profiles.list = [object[]]@($after)
-            Copy-Item $settingsPath "$settingsPath.bak" -Force
+            $ts = (Get-Date -Format 'yyyyMMdd-HHmmss')
+            $bakPath = "$settingsPath.$ts.bak"
+            Copy-Item $settingsPath $bakPath -Force
             $json | ConvertTo-Json -Depth 20 | Set-Content $settingsPath -Encoding UTF8
-            Write-Ok "$($before.Count - $after.Count) Profil(e) entfernt – Backup: $(Split-Path $settingsPath -Leaf).bak"
+            Write-Ok "$($before.Count - $after.Count) Profil(e) entfernt – Backup: $(Split-Path $bakPath -Leaf)"
         }
         catch {
             Write-Warn "settings.json nicht bearbeitbar: $_"
