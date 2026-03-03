@@ -18,8 +18,8 @@ Automatisiertes WSL2-Setup mit kuratierter Entwicklungsumgebung — von null auf
 
 ![Demo](docs/demo.gif)
 
-> Zeigt: `ubuntu-wsl-validate.sh` — 136 Checks nach erfolgreichem Setup.
-> Neues Recording mit `vhs demo.tape` erstellen (benötigt [VHS](https://github.com/charmbracelet/vhs)).
+> Zeigt: Windows Terminal öffnet sich → `.\Setup-WSL.ps1 install` mit Neustart → Auto-Resume → `ubuntu-wsl-setup.sh --full` → Validierung.
+> Neues Recording mit `asciinema rec -c "bash /tmp/demo-ultra.sh"` + `agg --theme dracula` erstellen.
 
 ---
 
