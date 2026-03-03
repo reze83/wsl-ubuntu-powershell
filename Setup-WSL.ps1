@@ -184,9 +184,9 @@ function Invoke-ElevatedIfNeeded {
 
     $argList = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "`"$PSCommandPath`"", $Action)
     $argList += @("-Distribution", $Distribution, "-SetupMode", $SetupMode)
-    if ($GitUserName)       { $argList += @("-GitUserName",  $GitUserName) }
-    if ($GitUserEmail)      { $argList += @("-GitUserEmail", $GitUserEmail) }
-    if ($SshKeyEmail)       { $argList += @("-SshKeyEmail",  $SshKeyEmail) }
+    if ($GitUserName)  { $argList += @("-GitUserName",  "'" + ($GitUserName  -replace "'", "''") + "'") }
+    if ($GitUserEmail) { $argList += @("-GitUserEmail", "'" + ($GitUserEmail -replace "'", "''") + "'") }
+    if ($SshKeyEmail)  { $argList += @("-SshKeyEmail",  "'" + ($SshKeyEmail  -replace "'", "''") + "'") }
     if ($RemoveWSLFeatures) { $argList += "-RemoveWSLFeatures" }
 
     Start-Process powershell.exe -Verb RunAs -ArgumentList $argList
@@ -360,22 +360,22 @@ function Invoke-UbuntuSetup {
         $wslPath = $resolved -replace '\\', '/'
     }
 
-    # Argumente aufbauen (Bash single-quote escaping: ' → '\'' )
-    $setupArgs = "--$SetupMode"
-    if ($GitUserName)  { $setupArgs += " --git-user-name '"  + ($GitUserName  -replace "'", "'\\''") + "'" }
-    if ($GitUserEmail) { $setupArgs += " --git-user-email '" + ($GitUserEmail -replace "'", "'\\''") + "'" }
-    if ($SshKeyEmail)  { $setupArgs += " --ssh-key-email '"  + ($SshKeyEmail  -replace "'", "'\\''") + "'" }
-    if ($DryRun)       { $setupArgs += " --dry-run" }
+    # Argumente als Array aufbauen (kein String-Interpolation, kein Shell-Injection-Risiko)
+    $wslArgs = @('-d', $Distribution, '--', 'bash', $wslPath, "--$SetupMode")
+    if ($GitUserName)  { $wslArgs += @('--git-user-name',  $GitUserName) }
+    if ($GitUserEmail) { $wslArgs += @('--git-user-email', $GitUserEmail) }
+    if ($SshKeyEmail)  { $wslArgs += @('--ssh-key-email',  $SshKeyEmail) }
+    if ($DryRun)       { $wslArgs += '--dry-run' }
 
     Write-Dim "Script : $wslPath"
-    Write-Dim "Args   : $setupArgs"
+    Write-Dim "Args   : $($wslArgs -join ' ')"
 
     if ($DryRun) {
-        Write-Dim "[DRY-RUN] wsl -d $Distribution bash -c 'chmod +x ... && bash ...'"
+        Write-Dim "[DRY-RUN] wsl $($wslArgs -join ' ')"
         return
     }
 
-    wsl -d $Distribution bash -c "chmod +x '$wslPath' && bash '$wslPath' $setupArgs"
+    & wsl @wslArgs
     if ($LASTEXITCODE -ne 0) {
         Write-Err "Ubuntu-Setup fehlgeschlagen (Exit-Code: $LASTEXITCODE)"
         exit 1
