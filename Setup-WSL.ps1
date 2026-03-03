@@ -74,6 +74,8 @@ $Script:C = @{
     Bold   = "`e[1m"
 }
 
+$Script:TaskName = 'WSL-Setup-Resume'
+
 function Write-Step   ([string]$Msg) { Write-Host "$($Script:C.Cyan)  >> $Msg$($Script:C.Reset)" }
 function Write-Ok     ([string]$Msg) { Write-Host "$($Script:C.Green)  v  $Msg$($Script:C.Reset)" }
 function Write-Warn   ([string]$Msg) { Write-Host "$($Script:C.Yellow)  !  $Msg$($Script:C.Reset)" }
@@ -97,6 +99,40 @@ $($Script:C.Cyan)
   ╚══════════════════════════════════════════════════════════╝$dryLabel
 $($Script:C.Reset)
 "@
+}
+
+#endregion
+
+#region ── Scheduled Task (Resume nach Neustart) ─────────────────────────────
+
+function Register-ResumeTask {
+    $argList = "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`" install" +
+               " -Distribution $Distribution -SetupMode $SetupMode"
+    if ($GitUserName)  { $argList += " -GitUserName `"$GitUserName`"" }
+    if ($GitUserEmail) { $argList += " -GitUserEmail `"$GitUserEmail`"" }
+
+    $action    = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $argList
+    $trigger   = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
+    $settings  = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 30)
+    $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -RunLevel Highest
+
+    Register-ScheduledTask -TaskName $Script:TaskName `
+        -Action $action -Trigger $trigger `
+        -Settings $settings -Principal $principal `
+        -Description 'WSL2 Setup nach Neustart fortsetzen' -Force | Out-Null
+
+    Write-Ok "Resume-Task registriert – Setup wird nach Neustart automatisch fortgesetzt"
+}
+
+function Remove-ResumeTask {
+    if (Get-ScheduledTask -TaskName $Script:TaskName -ErrorAction SilentlyContinue) {
+        Unregister-ScheduledTask -TaskName $Script:TaskName -Confirm:$false
+        Write-Ok "Resume-Task entfernt"
+    }
+}
+
+function Test-ResumeTaskExists {
+    return $null -ne (Get-ScheduledTask -TaskName $Script:TaskName -ErrorAction SilentlyContinue)
 }
 
 #endregion
@@ -164,7 +200,8 @@ function Enable-WSLFeatures {
     }
 
     if ($rebootNeeded -and -not $DryRun) {
-        Write-Warn "Neustart erforderlich! Nach dem Neustart dieses Script erneut ausfuehren."
+        Write-Warn "Neustart erforderlich!"
+        Register-ResumeTask
         $answer = Read-Host "  Jetzt neu starten? [J/n]"
         if ($answer -match '^[jJyY]?$') { Restart-Computer -Force }
         exit 0
@@ -356,6 +393,7 @@ switch ($Action) {
         Update-WSLKernel
         Set-WSLDefaultVersion
         Install-Ubuntu
+        Remove-ResumeTask
         Write-Host ""
         Write-Ok "Installation abgeschlossen!"
         Write-Host ""
