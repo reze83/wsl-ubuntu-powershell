@@ -124,9 +124,9 @@ function Register-ResumeTask {
     if ($DryRun) { Write-Dim "[DRY-RUN] Register-ResumeTask"; return }
     $argList = "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`" install" +
                " -Distribution $Distribution -SetupMode $SetupMode"
-    if ($GitUserName)  { $argList += " -GitUserName `"$GitUserName`"" }
-    if ($GitUserEmail) { $argList += " -GitUserEmail `"$GitUserEmail`"" }
-    if ($SshKeyEmail)  { $argList += " -SshKeyEmail `"$SshKeyEmail`"" }
+    if ($GitUserName)  { $argList += " -GitUserName '" + ($GitUserName  -replace "'", "''") + "'" }
+    if ($GitUserEmail) { $argList += " -GitUserEmail '" + ($GitUserEmail -replace "'", "''") + "'" }
+    if ($SshKeyEmail)  { $argList += " -SshKeyEmail '" + ($SshKeyEmail  -replace "'", "''") + "'" }
 
     $action    = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $argList
     $trigger   = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
@@ -184,9 +184,9 @@ function Invoke-ElevatedIfNeeded {
 
     $argList = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "`"$PSCommandPath`"", $Action)
     $argList += @("-Distribution", $Distribution, "-SetupMode", $SetupMode)
-    if ($GitUserName)       { $argList += @("-GitUserName",  "`"$GitUserName`"") }
-    if ($GitUserEmail)      { $argList += @("-GitUserEmail", "`"$GitUserEmail`"") }
-    if ($SshKeyEmail)       { $argList += @("-SshKeyEmail",  "`"$SshKeyEmail`"") }
+    if ($GitUserName)       { $argList += @("-GitUserName",  $GitUserName) }
+    if ($GitUserEmail)      { $argList += @("-GitUserEmail", $GitUserEmail) }
+    if ($SshKeyEmail)       { $argList += @("-SshKeyEmail",  $SshKeyEmail) }
     if ($RemoveWSLFeatures) { $argList += "-RemoveWSLFeatures" }
 
     Start-Process powershell.exe -Verb RunAs -ArgumentList $argList
@@ -223,7 +223,14 @@ function Enable-WSLFeatures {
         $answer = Read-Host "  Jetzt neu starten? [J/n]"
         if ($answer -match '^[jJyY]?$') {
             Register-ResumeTask
-            Restart-Computer -Force
+            try {
+                Restart-Computer -Force -ErrorAction Stop
+            } catch {
+                Remove-ResumeTask
+                Write-Err "Neustart fehlgeschlagen: $_"
+                Write-Warn "Resume-Task wurde entfernt. Bitte manuell neu starten und danach: .\Setup-WSL.ps1 install"
+                exit 1
+            }
         }
         Write-Warn "Kein Neustart – bitte manuell neu starten und dann: .\Setup-WSL.ps1 install"
         exit 0
@@ -353,11 +360,11 @@ function Invoke-UbuntuSetup {
         $wslPath = $resolved -replace '\\', '/'
     }
 
-    # Argumente aufbauen
+    # Argumente aufbauen (Bash single-quote escaping: ' → '\'' )
     $setupArgs = "--$SetupMode"
-    if ($GitUserName)  { $setupArgs += " --git-user-name `"$GitUserName`"" }
-    if ($GitUserEmail) { $setupArgs += " --git-user-email `"$GitUserEmail`"" }
-    if ($SshKeyEmail)  { $setupArgs += " --ssh-key-email `"$SshKeyEmail`"" }
+    if ($GitUserName)  { $setupArgs += " --git-user-name '"  + ($GitUserName  -replace "'", "'\\''") + "'" }
+    if ($GitUserEmail) { $setupArgs += " --git-user-email '" + ($GitUserEmail -replace "'", "'\\''") + "'" }
+    if ($SshKeyEmail)  { $setupArgs += " --ssh-key-email '"  + ($SshKeyEmail  -replace "'", "'\\''") + "'" }
     if ($DryRun)       { $setupArgs += " --dry-run" }
 
     Write-Dim "Script : $wslPath"
@@ -423,9 +430,10 @@ function Remove-TerminalProfile {
 
         try {
             $raw = Get-Content $settingsPath -Raw -Encoding UTF8
-            # JSONC: Zeilen entfernen die nur Kommentare enthalten
+            # JSONC: Zeilen entfernen die nur Kommentare enthalten + Inline-Kommentare
             $stripped = ($raw -split '\r?\n' |
-                Where-Object { $_ -notmatch '^\s*//' }) -join "`n"
+                Where-Object { $_ -notmatch '^\s*//' } |
+                ForEach-Object { $_ -replace '\s*//[^"]*$', '' }) -join "`n"
             $json = $stripped | ConvertFrom-Json
 
             if (-not ($json.profiles.PSObject.Properties.Name -contains 'list')) {
@@ -451,6 +459,8 @@ function Remove-TerminalProfile {
         }
         catch {
             Write-Warn "settings.json nicht bearbeitbar: $_"
+            Write-Warn "WT-Profil fuer '$Distribution' konnte nicht automatisch entfernt werden."
+            Write-Dim "  Bitte manuell unter: Windows Terminal → Einstellungen → Profile"
         }
     }
 

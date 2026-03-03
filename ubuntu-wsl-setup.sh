@@ -102,7 +102,9 @@ is_valid_email() {
 assert_valid_email_or_exit() {
   local value="$1" option_name="$2"
   if ! is_valid_email "$value"; then
-    print_error "Ungueltige E-Mail-Adresse fuer $option_name: $value"
+    local safe_value
+    safe_value=$(printf '%s' "$value" | tr -cd '[:print:]')
+    print_error "Ungueltige E-Mail-Adresse fuer $option_name: $safe_value"
     exit 1
   fi
 }
@@ -185,6 +187,8 @@ setup_locale() {
 setup_wsl_conf() {
   print_step "/etc/wsl.conf konfigurieren..."
   if [[ "$DRY_RUN" == true ]]; then print_dim "[DRY-RUN] /etc/wsl.conf erstellen (systemd=true)"; return; fi
+  [[ -f "$WSL_CONF_FILE" ]] && sudo cp "$WSL_CONF_FILE" "${WSL_CONF_FILE}.bak" \
+    && print_dim "Backup: ${WSL_CONF_FILE}.bak"
   sudo tee "$WSL_CONF_FILE" > /dev/null <<'EOF'
 [boot]
 systemd=true
@@ -284,6 +288,8 @@ export PATH="$HOME/.local/bin:$PATH"'
 setup_inputrc() {
   print_step "Readline konfigurieren (~/.inputrc)..."
   if [[ "$DRY_RUN" == true ]]; then print_dim "[DRY-RUN] ~/.inputrc erstellen"; return; fi
+  [[ -f "$HOME/.inputrc" ]] && cp "$HOME/.inputrc" "$HOME/.inputrc.bak" \
+    && print_dim "Backup: ~/.inputrc.bak"
   cat > "$HOME/.inputrc" <<'EOF'
 # History-Suche mit Pfeiltasten
 "\e[A": history-search-backward
@@ -624,6 +630,8 @@ setup_nodejs() {
 setup_tmux() {
   print_step "tmux konfigurieren (~/.tmux.conf)..."
   if [[ "$DRY_RUN" == true ]]; then print_dim "[DRY-RUN] ~/.tmux.conf erstellen"; return; fi
+  [[ -f "$HOME/.tmux.conf" ]] && cp "$HOME/.tmux.conf" "$HOME/.tmux.conf.bak" \
+    && print_dim "Backup: ~/.tmux.conf.bak"
 
   cat > "$HOME/.tmux.conf" <<'EOF'
 # Prefix: Ctrl+a (wie GNU screen)
@@ -725,7 +733,7 @@ setup_zsh() {
   if [[ -f "$zshrc" ]]; then
     # Plugins aktivieren (idempotent via Grep-Check)
     if ! grep -qF "zsh-autosuggestions" "$zshrc"; then
-      sed -i 's/^plugins=(.*)/plugins=(git zsh-autosuggestions zsh-syntax-highlighting)/' "$zshrc"
+      sed -i '0,/^plugins=(.*)/{s/^plugins=(.*)/plugins=(git zsh-autosuggestions zsh-syntax-highlighting)/}' "$zshrc"
     fi
     # ~/.local/bin in PATH
     # shellcheck disable=SC2016
