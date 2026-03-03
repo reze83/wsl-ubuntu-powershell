@@ -48,7 +48,9 @@
     .\Setup-WSL.ps1 status
     .\Setup-WSL.ps1 install -DryRun
 #>
-[CmdletBinding(SupportsShouldProcess)]
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingWriteHost', '',
+    Justification = 'Intentional: ANSI-colored terminal output requires Write-Host to avoid pipeline capture')]
+[CmdletBinding()]
 param(
     [Parameter(Position = 0)]
     [ValidateSet('install', 'setup', 'reset', 'uninstall', 'status')]
@@ -172,13 +174,13 @@ function Invoke-ElevatedIfNeeded {
         return
     }
 
-    $args = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "`"$PSCommandPath`"", $Action)
-    $args += @("-Distribution", $Distribution, "-SetupMode", $SetupMode)
-    if ($GitUserName)  { $args += @("-GitUserName",  "`"$GitUserName`"") }
-    if ($GitUserEmail) { $args += @("-GitUserEmail", "`"$GitUserEmail`"") }
-    if ($DryRun)       { $args += "-DryRun" }
+    $argList = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "`"$PSCommandPath`"", $Action)
+    $argList += @("-Distribution", $Distribution, "-SetupMode", $SetupMode)
+    if ($GitUserName)  { $argList += @("-GitUserName",  "`"$GitUserName`"") }
+    if ($GitUserEmail) { $argList += @("-GitUserEmail", "`"$GitUserEmail`"") }
+    if ($DryRun)       { $argList += "-DryRun" }
 
-    Start-Process powershell.exe -Verb RunAs -ArgumentList $args
+    Start-Process powershell.exe -Verb RunAs -ArgumentList $argList
     exit 0
 }
 

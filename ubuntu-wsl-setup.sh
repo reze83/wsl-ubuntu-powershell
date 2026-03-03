@@ -19,8 +19,6 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-readonly SCRIPT_DIR
 
 #-------------------------------------------------------------------------------
 # Farben
@@ -251,6 +249,7 @@ setup_shell() {
   if [[ "$DRY_RUN" == true ]]; then print_dim "[DRY-RUN] .bashrc: History, Aliases, PATH"; return; fi
 
   # History
+  # shellcheck disable=SC2016
   append_if_missing "$BASHRC_PATH" "# wsl-setup:history" \
 '# wsl-setup:history
 HISTSIZE=10000
@@ -271,6 +270,7 @@ alias ...="cd ../.."
 alias mkdir="mkdir -pv"'
 
   # PATH fuer ~/.local/bin
+  # shellcheck disable=SC2016
   append_if_missing "$BASHRC_PATH" "# wsl-setup:path" \
 '# wsl-setup:path
 export PATH="$HOME/.local/bin:$PATH"'
@@ -295,7 +295,7 @@ set show-all-if-ambiguous on
 set colored-stats on
 set mark-symlinked-directories on
 EOF
-  print_success "~/.inputrc erstellt"
+  print_success "$HOME/.inputrc erstellt"
 }
 
 #-------------------------------------------------------------------------------
@@ -404,6 +404,7 @@ _install_zoxide() {
   command -v zoxide &>/dev/null && { print_success "zoxide bereits vorhanden"; return; }
   if curl -fsSL https://raw.githubusercontent.com/ajeetdsouza/zoxide/main/install.sh | bash 2>/dev/null; then
     print_success "zoxide installiert"
+    # shellcheck disable=SC2016
     append_if_missing "$BASHRC_PATH" "# wsl-setup:zoxide" \
 '# wsl-setup:zoxide
 eval "$(zoxide init bash)"'
@@ -435,9 +436,11 @@ https://cli.github.com/packages stable main" \
 install_browser_integration() {
   print_step "Browser-Integration installieren (xdg-utils, wslu)..."
   if [[ "$DRY_RUN" == true ]]; then print_dim "[DRY-RUN] apt install xdg-utils wslu"; return; fi
-  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq xdg-utils wslu 2>/dev/null \
-    && print_success "Browser-Integration bereit (wslview)" \
-    || print_warning "wslu nicht verfuegbar – uebersprungen"
+  if sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq xdg-utils wslu 2>/dev/null; then
+    print_success "Browser-Integration bereit (wslview)"
+  else
+    print_warning "wslu nicht verfuegbar – uebersprungen"
+  fi
 }
 
 #-------------------------------------------------------------------------------
@@ -475,9 +478,11 @@ setup_python() {
     python3 python3-pip python3-venv python3-dev 2>/dev/null
 
   if ! command -v uv &>/dev/null; then
-    curl -fsSL https://astral.sh/uv/install.sh | bash 2>/dev/null \
-      && print_success "uv installiert" \
-      || print_warning "uv: Installation fehlgeschlagen – uebersprungen"
+    if curl -fsSL https://astral.sh/uv/install.sh | bash 2>/dev/null; then
+      print_success "uv installiert"
+    else
+      print_warning "uv: Installation fehlgeschlagen – uebersprungen"
+    fi
   fi
 
   # pip-Konfiguration: kein break-system-packages noetig
@@ -488,6 +493,7 @@ break-system-packages = false
 EOF
 
   # uv in PATH
+  # shellcheck disable=SC2016
   append_if_missing "$BASHRC_PATH" "# wsl-setup:uv" \
 '# wsl-setup:uv
 export PATH="$HOME/.local/bin:$PATH"'
@@ -525,9 +531,11 @@ setup_nodejs() {
   nvm alias default "$NODE_VERSION" 2>/dev/null
 
   if ! command -v pnpm &>/dev/null; then
-    npm install -g pnpm 2>/dev/null \
-      && print_success "pnpm installiert" \
-      || print_warning "pnpm: Installation fehlgeschlagen"
+    if npm install -g pnpm 2>/dev/null; then
+      print_success "pnpm installiert"
+    else
+      print_warning "pnpm: Installation fehlgeschlagen"
+    fi
   fi
 
   local node_ver
@@ -592,7 +600,7 @@ set -g window-status-current-style 'fg=#1e1e2e bg=#89b4fa bold'
 # Config neu laden
 bind r source-file ~/.tmux.conf \; display "~/.tmux.conf neu geladen"
 EOF
-  print_success "~/.tmux.conf erstellt"
+  print_success "$HOME/.tmux.conf erstellt"
 }
 
 #-------------------------------------------------------------------------------
