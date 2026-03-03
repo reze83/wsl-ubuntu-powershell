@@ -333,6 +333,7 @@ EOF
 # SSH-Key-Generierung
 #-------------------------------------------------------------------------------
 generate_ssh_key_if_missing() {
+  [[ "$DRY_RUN" == true ]] && { print_dim "[DRY-RUN] SSH-Key-Generierung (interaktiv, falls keiner vorhanden)"; return; }
   [[ -f "$SSH_KEY" ]] && return 0
   [[ ! -t 0 ]] && return 0
 
@@ -464,12 +465,14 @@ _install_pwsh() {
 _install_yq() {
   command -v yq &>/dev/null && { print_success "yq bereits vorhanden"; return; }
   local url="https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64"
-  if curl -fsSL "$url" -o "$LOCAL_BIN_DIR/yq" 2>/dev/null; then
-    chmod +x "$LOCAL_BIN_DIR/yq"
+  local tmp; tmp=$(mktemp)
+  if curl -fsSL "$url" -o "$tmp" 2>/dev/null; then
+    install -m 755 "$tmp" "$LOCAL_BIN_DIR/yq"
     print_success "yq $("$LOCAL_BIN_DIR/yq" --version 2>/dev/null | awk '{print $NF}') installiert"
   else
     print_warning "yq: Download fehlgeschlagen – uebersprungen"
   fi
+  rm -f "$tmp"
 }
 
 _install_lazygit() {
@@ -554,12 +557,6 @@ setup_python() {
 [global]
 break-system-packages = false
 EOF
-
-  # uv in PATH
-  # shellcheck disable=SC2016
-  append_if_missing "$BASHRC_PATH" "# wsl-setup:uv" \
-'# wsl-setup:uv
-export PATH="$HOME/.local/bin:$PATH"'
 
   local py_version
   py_version=$(python3 --version 2>/dev/null | cut -d' ' -f2)
@@ -698,6 +695,7 @@ preflight_checks() {
   done
 
   if ! sudo -n true 2>/dev/null; then
+    [[ "$DRY_RUN" == true ]] && return
     print_step "Sudo-Berechtigung pruefen..."
     sudo -v
   fi
@@ -810,7 +808,7 @@ show_dry_run_plan() {
   if [[ "$INSTALL_MODE" == "$MODE_FULL" ]]; then
     echo ""
     echo "  Full-Mode zusaetzlich:"
-    echo "   10. CLI-Tools (ripgrep, fd, bat, fzf, tmux, ncdu, direnv)"
+    echo "   10. CLI-Tools (ripgrep, fd, bat, fzf, tmux, ncdu, direnv, git-delta)"
     echo "   11. eza (modernes ls, via GitHub Releases)"
     echo "   12. zoxide (smarter cd)"
     echo "   13. gh (GitHub CLI, via apt)"
@@ -819,6 +817,8 @@ show_dry_run_plan() {
     echo "   16. Python 3 + uv (via astral.sh)"
     echo "   17. Node.js LTS (via nvm ${NVM_VERSION}) + pnpm"
     echo "   18. tmux-Konfiguration (~/.tmux.conf)"
+    echo "   19. pwsh (PowerShell Core, via Microsoft apt-Repo)"
+    echo "   20. yq, lazygit (via GitHub Releases)"
   fi
 
   echo ""
@@ -855,7 +855,7 @@ EOF
   fi
 
   if [[ "$INSTALL_MODE" == "$MODE_FULL" ]]; then
-    printf '    %b+%b CLI-Tools (ripgrep, fd, bat, eza, zoxide, fzf, gh, direnv)\n' "$GREEN" "$NC"
+    printf '    %b+%b CLI-Tools (ripgrep, fd, bat, eza, zoxide, fzf, gh, git-delta, direnv, pwsh, yq, lazygit)\n' "$GREEN" "$NC"
     printf '    %b+%b Dev-Dependencies, Browser-Integration, tmux\n' "$GREEN" "$NC"
   fi
 

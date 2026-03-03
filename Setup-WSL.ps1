@@ -29,6 +29,9 @@
 .PARAMETER GitUserEmail
     Git user.email vorbelegen (optional)
 
+.PARAMETER SshKeyEmail
+    E-Mail-Adresse fuer SSH-Key-Generierung (optional, Standard: GitUserEmail)
+
 .PARAMETER DryRun
     Zeigt geplante Schritte ohne Ausfuehrung
 
@@ -64,6 +67,7 @@ param(
 
     [string]$GitUserName = '',
     [string]$GitUserEmail = '',
+    [string]$SshKeyEmail = '',
 
     [switch]$DryRun,
     [switch]$RemoveWSLFeatures
@@ -75,13 +79,13 @@ $ErrorActionPreference = 'Stop'
 #region ── Farben & Ausgabe ──────────────────────────────────────────────────
 
 $Script:C = @{
-    Reset  = "`e[0m"
-    Cyan   = "`e[36m"
-    Green  = "`e[32m"
-    Yellow = "`e[33m"
-    Red    = "`e[31m"
-    Dim    = "`e[2m"
-    Bold   = "`e[1m"
+    Reset  = "$([char]27)[0m"
+    Cyan   = "$([char]27)[36m"
+    Green  = "$([char]27)[32m"
+    Yellow = "$([char]27)[33m"
+    Red    = "$([char]27)[31m"
+    Dim    = "$([char]27)[2m"
+    Bold   = "$([char]27)[1m"
 }
 
 $Script:TaskName = 'WSL-Setup-Resume'
@@ -120,6 +124,7 @@ function Register-ResumeTask {
                " -Distribution $Distribution -SetupMode $SetupMode"
     if ($GitUserName)  { $argList += " -GitUserName `"$GitUserName`"" }
     if ($GitUserEmail) { $argList += " -GitUserEmail `"$GitUserEmail`"" }
+    if ($SshKeyEmail)  { $argList += " -SshKeyEmail `"$SshKeyEmail`"" }
 
     $action    = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $argList
     $trigger   = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
@@ -135,6 +140,7 @@ function Register-ResumeTask {
 }
 
 function Remove-ResumeTask {
+    if ($DryRun) { Write-Dim "[DRY-RUN] Remove-ResumeTask"; return }
     if (Get-ScheduledTask -TaskName $Script:TaskName -ErrorAction SilentlyContinue) {
         Unregister-ScheduledTask -TaskName $Script:TaskName -Confirm:$false
         Write-Ok "Resume-Task entfernt"
@@ -176,9 +182,10 @@ function Invoke-ElevatedIfNeeded {
 
     $argList = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "`"$PSCommandPath`"", $Action)
     $argList += @("-Distribution", $Distribution, "-SetupMode", $SetupMode)
-    if ($GitUserName)  { $argList += @("-GitUserName",  "`"$GitUserName`"") }
-    if ($GitUserEmail) { $argList += @("-GitUserEmail", "`"$GitUserEmail`"") }
-    if ($DryRun)       { $argList += "-DryRun" }
+    if ($GitUserName)       { $argList += @("-GitUserName",  "`"$GitUserName`"") }
+    if ($GitUserEmail)      { $argList += @("-GitUserEmail", "`"$GitUserEmail`"") }
+    if ($SshKeyEmail)       { $argList += @("-SshKeyEmail",  "`"$SshKeyEmail`"") }
+    if ($RemoveWSLFeatures) { $argList += "-RemoveWSLFeatures" }
 
     Start-Process powershell.exe -Verb RunAs -ArgumentList $argList
     exit 0
@@ -329,6 +336,7 @@ function Invoke-UbuntuSetup {
     $setupArgs = "--$SetupMode"
     if ($GitUserName)  { $setupArgs += " --git-user-name `"$GitUserName`"" }
     if ($GitUserEmail) { $setupArgs += " --git-user-email `"$GitUserEmail`"" }
+    if ($SshKeyEmail)  { $setupArgs += " --ssh-key-email `"$SshKeyEmail`"" }
     if ($DryRun)       { $setupArgs += " --dry-run" }
 
     Write-Dim "Script : $wslPath"
