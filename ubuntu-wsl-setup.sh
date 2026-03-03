@@ -358,14 +358,23 @@ install_cli_tools() {
   print_step "CLI-Tools installieren..."
 
   if [[ "$DRY_RUN" == true ]]; then
-    print_dim "[DRY-RUN] apt: ripgrep, fd-find, bat, fzf, tmux, ncdu, direnv"
+    print_dim "[DRY-RUN] apt: ripgrep, fd-find, bat, fzf, tmux, ncdu, direnv, git-delta"
     print_dim "[DRY-RUN] eza (GitHub Releases), zoxide, gh (GitHub CLI)"
     print_dim "[DRY-RUN] pwsh (Microsoft apt-Repo)"
+    print_dim "[DRY-RUN] yq, lazygit (GitHub Releases)"
     return
   fi
 
-  local -a apt_tools=(ripgrep fd-find bat fzf tmux ncdu direnv)
+  local -a apt_tools=(ripgrep fd-find bat fzf tmux ncdu direnv git-delta)
   sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${apt_tools[@]}"
+
+  # delta als git-Pager konfigurieren
+  if command -v delta &>/dev/null; then
+    git config --global core.pager delta
+    git config --global interactive.diffFilter 'delta --color-only'
+    git config --global delta.navigate true
+    print_success "delta als git-Pager konfiguriert"
+  fi
 
   mkdir -p "$LOCAL_BIN_DIR"
 
@@ -377,6 +386,8 @@ install_cli_tools() {
   _install_zoxide
   _install_gh_cli
   _install_pwsh
+  _install_yq
+  _install_lazygit
 
   print_success "CLI-Tools installiert"
 }
@@ -448,6 +459,38 @@ _install_pwsh() {
     print_warning "pwsh: Installation fehlgeschlagen – uebersprungen"
   fi
   rm -f "$tmp_deb"
+}
+
+_install_yq() {
+  command -v yq &>/dev/null && { print_success "yq bereits vorhanden"; return; }
+  local url="https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64"
+  if curl -fsSL "$url" -o "$LOCAL_BIN_DIR/yq" 2>/dev/null; then
+    chmod +x "$LOCAL_BIN_DIR/yq"
+    print_success "yq $("$LOCAL_BIN_DIR/yq" --version 2>/dev/null | awk '{print $NF}') installiert"
+  else
+    print_warning "yq: Download fehlgeschlagen – uebersprungen"
+  fi
+}
+
+_install_lazygit() {
+  command -v lazygit &>/dev/null && { print_success "lazygit bereits vorhanden"; return; }
+  local version
+  version=$(curl -fsSL "https://api.github.com/repos/jesseduffield/lazygit/releases/latest" \
+    | grep '"tag_name"' | cut -d'"' -f4 | sed 's/^v//')
+  if [[ -z "$version" ]]; then
+    print_warning "lazygit: Version nicht ermittelbar – uebersprungen"
+    return
+  fi
+  local tmp; tmp=$(mktemp -d)
+  local url="https://github.com/jesseduffield/lazygit/releases/download/v${version}/lazygit_${version}_Linux_x86_64.tar.gz"
+  if curl -fsSL "$url" -o "$tmp/lazygit.tar.gz" 2>/dev/null; then
+    tar xzf "$tmp/lazygit.tar.gz" -C "$tmp" lazygit 2>/dev/null
+    install -m 755 "$tmp/lazygit" "$LOCAL_BIN_DIR/lazygit"
+    print_success "lazygit ${version} installiert"
+  else
+    print_warning "lazygit: Download fehlgeschlagen – uebersprungen"
+  fi
+  rm -rf "$tmp"
 }
 
 #-------------------------------------------------------------------------------
