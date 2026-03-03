@@ -19,7 +19,7 @@ Automatisiertes WSL2-Setup mit kuratierter Entwicklungsumgebung — von null auf
 - **Ein Einstiegspunkt** — `Setup-WSL.ps1` steuert den gesamten Lifecycle (install → setup → reset → uninstall)
 - **Automatische UAC-Elevation** — kein manuelles "Als Administrator ausführen" nötig
 - **Auto-Resume nach Neustart** — bei Windows-Feature-Aktivierung registriert das Script einen Scheduled Task und setzt nach dem Reboot automatisch fort
-- **Vollständiger Dry-Run** — alle 21 Schritte werden vor der Ausführung angezeigt, nichts wird verändert
+- **Vollständiger Dry-Run** — alle Schritte werden vor der Ausführung angezeigt, nichts wird verändert
 - **Idempotentes Design** — das Script kann mehrfach ausgeführt werden, bereits installierte Tools werden übersprungen
 - **Sicheres Download-Pattern** — kein `curl | bash`; alle Installer werden zuerst heruntergeladen, dann ausgeführt
 - **Zwei Modi** — `--minimal` für Server/CI, `--full` für komplette Entwicklungsumgebung
