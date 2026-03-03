@@ -887,6 +887,10 @@ FULL installiert zusaetzlich:
   Python 3 + uv (astral.sh)
   Node.js LTS (via nvm) + pnpm
   tmux-Konfiguration (~/.tmux.conf)
+
+AM ENDE (interaktiv, wenn TTY vorhanden):
+  GitHub CLI authentifizieren  (gh auth login)
+  Passwordless sudo einrichten (sudo ohne Passwort – /etc/sudoers.d/USER-nopasswd)
 EOF
 }
 
@@ -945,6 +949,10 @@ show_dry_run_plan() {
     echo "   21. zsh + Oh-My-Zsh + Plugins (zsh-autosuggestions, zsh-syntax-highlighting)"
   fi
 
+  echo ""
+  echo "  Interaktiv am Ende (nur wenn TTY vorhanden):"
+  echo "    - GitHub CLI authentifizieren (gh auth login)"
+  echo "    - Passwordless sudo anbieten (/etc/sudoers.d/${USER}-nopasswd)"
   echo ""
   print_dim "Zum Ausfuehren Script ohne --dry-run starten"
 }
@@ -1027,6 +1035,27 @@ offer_gh_auth_login() {
   gh auth login
 }
 
+offer_passwordless_sudo() {
+  local sudoers_file="/etc/sudoers.d/${USER}-nopasswd"
+  [[ -f "$sudoers_file" ]] && return 0
+  if [[ "$DRY_RUN" == true ]]; then
+    print_dim "[DRY-RUN] Passwordless sudo anbieten (Datei: $sudoers_file)"
+    return 0
+  fi
+  [[ ! -t 0 ]] && return 0
+
+  print_step "Passwordless sudo (optional)"
+  print_dim "Erlaubt 'sudo' ohne Passwort-Eingabe (nuetzlich fuer CI, Claude Code, Skripte)"
+
+  local reply
+  read -r -p "  Passwordless sudo einrichten? [j/N]: " reply
+  [[ "${reply,,}" != "j" && "${reply,,}" != "y" ]] && return 0
+
+  echo "${USER} ALL=(ALL) NOPASSWD: ALL" | sudo tee "$sudoers_file" > /dev/null
+  sudo chmod 440 "$sudoers_file"
+  print_success "Passwordless sudo eingerichtet: $sudoers_file"
+}
+
 #-------------------------------------------------------------------------------
 # Main
 #-------------------------------------------------------------------------------
@@ -1074,6 +1103,7 @@ main() {
   log "=== Setup beendet ==="
   show_summary
   offer_gh_auth_login
+  offer_passwordless_sudo
 }
 
 main "$@"
