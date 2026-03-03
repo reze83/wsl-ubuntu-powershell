@@ -188,7 +188,6 @@ function Invoke-ElevatedIfNeeded {
     if ($GitUserEmail) { $argList += @("-GitUserEmail", '"' + ($GitUserEmail -replace '"', '""') + '"') }
     if ($SshKeyEmail)  { $argList += @("-SshKeyEmail",  '"' + ($SshKeyEmail  -replace '"', '""') + '"') }
     if ($RemoveWSLFeatures) { $argList += "-RemoveWSLFeatures" }
-    if ($DryRun) { $argList += "-DryRun" }
 
     Start-Process powershell.exe -Verb RunAs -ArgumentList $argList
     exit 0
@@ -438,10 +437,9 @@ function Remove-TerminalProfile {
 
         try {
             $raw = Get-Content $settingsPath -Raw -Encoding UTF8
-            # JSONC: Zeilen entfernen die nur Kommentare enthalten + Inline-Kommentare
+            # JSONC: Zeilen entfernen die nur Kommentare enthalten
             $stripped = ($raw -split '\r?\n' |
-                Where-Object { $_ -notmatch '^\s*//' } |
-                ForEach-Object { $_ -replace '\s*//[^"]*$', '' }) -join "`n"
+                Where-Object { $_ -notmatch '^\s*//' }) -join "`n"
             $json = $stripped | ConvertFrom-Json
 
             if (-not ($json.profiles.PSObject.Properties.Name -contains 'list')) {
