@@ -360,6 +360,7 @@ install_cli_tools() {
   if [[ "$DRY_RUN" == true ]]; then
     print_dim "[DRY-RUN] apt: ripgrep, fd-find, bat, fzf, tmux, ncdu, direnv"
     print_dim "[DRY-RUN] eza (GitHub Releases), zoxide, gh (GitHub CLI)"
+    print_dim "[DRY-RUN] pwsh (Microsoft apt-Repo)"
     return
   fi
 
@@ -375,6 +376,7 @@ install_cli_tools() {
   _install_eza
   _install_zoxide
   _install_gh_cli
+  _install_pwsh
 
   print_success "CLI-Tools installiert"
 }
@@ -428,6 +430,24 @@ https://cli.github.com/packages stable main" \
   else
     print_warning "gh: Installation fehlgeschlagen – uebersprungen"
   fi
+}
+
+_install_pwsh() {
+  command -v pwsh &>/dev/null && { print_success "pwsh bereits vorhanden"; return; }
+  local ubuntu_version
+  ubuntu_version=$(lsb_release -rs 2>/dev/null)
+  local tmp_deb
+  tmp_deb=$(mktemp --suffix=.deb)
+  local deb_url="https://packages.microsoft.com/config/ubuntu/${ubuntu_version}/packages-microsoft-prod.deb"
+  if curl -fsSL "$deb_url" -o "$tmp_deb" 2>/dev/null \
+    && sudo dpkg -i "$tmp_deb" 2>/dev/null \
+    && sudo apt-get update -qq \
+    && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq powershell; then
+    print_success "pwsh $(pwsh --version 2>/dev/null | cut -d' ' -f2) installiert"
+  else
+    print_warning "pwsh: Installation fehlgeschlagen – uebersprungen"
+  fi
+  rm -f "$tmp_deb"
 }
 
 #-------------------------------------------------------------------------------
