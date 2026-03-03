@@ -886,6 +886,22 @@ EOF
 }
 
 #-------------------------------------------------------------------------------
+# GitHub CLI Auth
+#-------------------------------------------------------------------------------
+offer_gh_auth_login() {
+  command -v gh &>/dev/null || return 0
+  gh auth status &>/dev/null && return 0
+  [[ ! -t 0 ]] && return 0
+
+  local reply
+  read -r -p "  GitHub CLI authentifizieren? (gh auth login) [J/n]: " reply
+  reply="${reply:-j}"
+  [[ "${reply,,}" != "j" && "${reply,,}" != "y" ]] && return 0
+
+  gh auth login
+}
+
+#-------------------------------------------------------------------------------
 # Main
 #-------------------------------------------------------------------------------
 main() {
@@ -928,6 +944,7 @@ main() {
 
   log "=== Setup beendet ==="
   show_summary
+  offer_gh_auth_login
 }
 
 main "$@"
