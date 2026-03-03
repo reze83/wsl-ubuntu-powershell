@@ -32,12 +32,19 @@
 .PARAMETER DryRun
     Zeigt geplante Schritte ohne Ausfuehrung
 
+.PARAMETER RemoveWSLFeatures
+    Nur bei 'uninstall': deaktiviert zusaetzlich die WSL2-Windows-Features
+    (Microsoft-Windows-Subsystem-Linux, VirtualMachinePlatform).
+    Nur wirksam wenn keine weiteren WSL-Distributionen installiert sind.
+    Erfordert anschliessenden Neustart.
+
 .EXAMPLE
     .\Setup-WSL.ps1
     .\Setup-WSL.ps1 install -Distribution Ubuntu-24.04
     .\Setup-WSL.ps1 setup -SetupMode minimal
     .\Setup-WSL.ps1 setup -GitUserName "Max Mustermann" -GitUserEmail "max@example.com"
     .\Setup-WSL.ps1 reset
+    .\Setup-WSL.ps1 uninstall -RemoveWSLFeatures
     .\Setup-WSL.ps1 status
     .\Setup-WSL.ps1 install -DryRun
 #>
@@ -56,7 +63,8 @@ param(
     [string]$GitUserName = '',
     [string]$GitUserEmail = '',
 
-    [switch]$DryRun
+    [switch]$DryRun,
+    [switch]$RemoveWSLFeatures
 )
 
 Set-StrictMode -Version Latest
@@ -226,6 +234,36 @@ function Set-WSLDefaultVersion {
     Write-Ok "WSL2 als Standard gesetzt"
 }
 
+function Disable-WSLFeatures {
+    # Pruefen ob noch andere Distros ausser der gerade deregistrierten vorhanden sind
+    $remaining = wsl --list --quiet 2>&1 | Where-Object { $_.Trim() -ne '' }
+    if ($remaining.Count -gt 0) {
+        Write-Warn "Weitere WSL-Distributionen vorhanden – WSL-Features bleiben aktiv:"
+        $remaining | ForEach-Object { Write-Dim "    $_" }
+        return
+    }
+
+    Write-Step "WSL2-Windows-Features deaktivieren..."
+    $features = @('Microsoft-Windows-Subsystem-Linux', 'VirtualMachinePlatform')
+
+    if ($DryRun) {
+        $features | ForEach-Object { Write-Dim "[DRY-RUN] Disable-WindowsOptionalFeature -FeatureName $_" }
+        return
+    }
+
+    foreach ($feature in $features) {
+        $state = Get-WindowsOptionalFeature -Online -FeatureName $feature -ErrorAction SilentlyContinue
+        if ($state -and $state.State -eq 'Enabled') {
+            Disable-WindowsOptionalFeature -Online -FeatureName $feature -NoRestart | Out-Null
+            Write-Ok "$feature deaktiviert"
+        }
+    }
+
+    Write-Warn "Neustart erforderlich, um WSL-Features vollstaendig zu entfernen."
+    $answer = Read-Host "  Jetzt neu starten? [J/n]"
+    if ($answer -match '^[jJyY]?$') { Restart-Computer -Force }
+}
+
 #endregion
 
 #region ── Ubuntu-Lifecycle ──────────────────────────────────────────────────
@@ -322,6 +360,7 @@ function Reset-Ubuntu {
         Write-Warn "$Distribution war nicht installiert – starte direkt mit Installation."
     }
 
+    Remove-ResumeTask
     Install-Ubuntu
 }
 
@@ -330,6 +369,7 @@ function Remove-Ubuntu {
 
     if (-not (Get-IsDistributionInstalled)) {
         Write-Warn "$Distribution ist nicht installiert."
+        Remove-ResumeTask
         return
     }
 
@@ -341,11 +381,17 @@ function Remove-Ubuntu {
 
     if ($DryRun) {
         Write-Dim "[DRY-RUN] wsl --unregister $Distribution"
+        if ($RemoveWSLFeatures) { Write-Dim "[DRY-RUN] Disable-WSLFeatures" }
         return
     }
 
     wsl --unregister $Distribution
     Write-Ok "$Distribution deregistriert"
+    Remove-ResumeTask
+
+    if ($RemoveWSLFeatures) {
+        Disable-WSLFeatures
+    }
 }
 
 #endregion
