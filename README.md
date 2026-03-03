@@ -16,12 +16,10 @@ Automatisiertes WSL2-Setup mit kuratierter Entwicklungsumgebung — von null auf
 
 ## 🎬 Demo
 
-<!-- Demo-GIF hier einfügen, sobald aufgenommen:
-     ![Demo](docs/demo.gif)
-     Aufnehmen mit: vhs demo.tape  (benötigt: https://github.com/charmbracelet/vhs) -->
+![Demo](docs/demo.gif)
 
-> [!NOTE]
-> **Demo-Recording folgt.** `demo.tape` liegt bereit — einfach `vhs demo.tape` ausführen, sobald VHS installiert ist.
+> Zeigt: `ubuntu-wsl-validate.sh` — 136 Checks nach erfolgreichem Setup.
+> Neues Recording mit `vhs demo.tape` erstellen (benötigt [VHS](https://github.com/charmbracelet/vhs)).
 
 ---
 
