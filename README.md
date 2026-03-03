@@ -211,7 +211,19 @@ cat ~/.ssh/id_ed25519.pub
 gh auth login
 ```
 
-**4. Bei Problemen:** Log-Datei prüfen:
+**4. Passwordless sudo einrichten** (optional, wird am Ende von `--full` interaktiv angeboten):
+
+Erlaubt `sudo` ohne Passwort-Eingabe — nützlich für CI, Skripte und Tools wie Claude Code.
+Erstellt `/etc/sudoers.d/<user>-nopasswd` mit `chmod 440`. Default: Nein.
+
+**5. Setup validieren:**
+
+```bash
+./ubuntu-wsl-validate.sh           # 136 Checks (full-Modus)
+./ubuntu-wsl-validate.sh --minimal # Nur Basis-Checks
+```
+
+**6. Bei Problemen:** Log-Datei prüfen:
 
 ```bash
 cat ~/.wsl-setup.log
@@ -236,7 +248,8 @@ Setup-WSL.ps1
           [--full] [--dry-run] [...]   │   ├─ setup_nodejs
                                        │   ├─ setup_tmux
                                        │   └─ setup_zsh
-                                       └─ [offer gh auth login]
+                                       ├─ [offer gh auth login]
+                                       └─ [offer passwordless sudo]
 ```
 
 Beide Dateien müssen im **selben Verzeichnis** liegen — `Setup-WSL.ps1` verwendet `$PSScriptRoot` als Referenzpfad.
@@ -280,6 +293,7 @@ rm -f "$tmp"
 ```powershell
 # Bash
 shellcheck ubuntu-wsl-setup.sh
+shellcheck ubuntu-wsl-validate.sh
 
 # PowerShell
 Invoke-ScriptAnalyzer -Path Setup-WSL.ps1
