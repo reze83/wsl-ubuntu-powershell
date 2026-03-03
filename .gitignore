@@ -1,0 +1,34 @@
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Windows
+*.lnk
+
+# Logs
+*.log
+.wsl-setup.log
+
+# Umgebungsvariablen
+.env
+.env.*
+
+# IDE
+.vscode/settings.json
+.idea/
+*.suo
+*.user
+
+# PowerShell
+*.ps1xml
+
+# Temporäre Dateien
+*.tmp
+*.bak
+~$*
+
+# Ubuntu-Image (kann groß sein)
+ubuntu-*.zip
+ubuntu-*.appx
+ubuntu/

@@ -1,0 +1,13 @@
+# Bash-Scripts: immer LF
+*.sh    text eol=lf
+
+# PowerShell-Scripts: CRLF für Windows-Kompatibilität
+*.ps1   text eol=crlf
+*.psm1  text eol=crlf
+*.psd1  text eol=crlf
+
+# Markdown: LF
+*.md    text eol=lf
+
+# Alles andere: Git entscheidet
+*       text=auto
