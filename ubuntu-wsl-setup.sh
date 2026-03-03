@@ -1,53 +1,54 @@
 #!/bin/bash
 #===============================================================================
-# Ubuntu WSL2 Setup - Optimierte Entwicklungsumgebung
-# Verwendung: chmod +x ubuntu-wsl-setup.sh && ./ubuntu-wsl-setup.sh
-# Optionen:   ./ubuntu-wsl-setup.sh --minimal    (Basis + Git + Shell + SSH)
-#             ./ubuntu-wsl-setup.sh --full        (alles inkl. CLI, Dev, Python, Node.js)
-#             ./ubuntu-wsl-setup.sh --dry-run     (zeigt Schritte ohne Ausfuehrung)
-#             ./ubuntu-wsl-setup.sh --git-user-name "Max Mustermann" --git-user-email "max@example.com"
-#             ./ubuntu-wsl-setup.sh --ssh-key-email "max@example.com"
-#             ./ubuntu-wsl-setup.sh --help        (Hilfe anzeigen)
+# Ubuntu WSL2 Setup – Optimierte Entwicklungsumgebung
+#
+# Verwendung:
+#   chmod +x ubuntu-wsl-setup.sh && ./ubuntu-wsl-setup.sh
+#
+# Optionen:
+#   --minimal            Basis + Git + Shell + SSH
+#   --full               Alles inkl. Dev-Tools, Python, Node.js (Standard)
+#   --dry-run            Zeigt geplante Schritte ohne Ausfuehrung
+#   --git-user-name N    Git user.name vorbelegen
+#   --git-user-email E   Git user.email vorbelegen
+#   --ssh-key-email E    E-Mail fuer SSH-Key vorbelegen
+#   --help, -h           Diese Hilfe
+#
+# Wird normalerweise von Setup-WSL.ps1 automatisch aufgerufen.
 #===============================================================================
 
 set -euo pipefail
 
-#-------------------------------------------------------------------------------
-# Script Directory & Lib Loading
-#-------------------------------------------------------------------------------
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly SCRIPT_DIR
 
-# shellcheck source=lib/logging.sh
-source "${SCRIPT_DIR}/lib/logging.sh"
-# shellcheck source=lib/packages.sh
-source "${SCRIPT_DIR}/lib/packages.sh"
-# shellcheck source=lib/config.sh
-source "${SCRIPT_DIR}/lib/config.sh"
-# shellcheck source=lib/tools.sh
-source "${SCRIPT_DIR}/lib/tools.sh"
+#-------------------------------------------------------------------------------
+# Farben
+#-------------------------------------------------------------------------------
+readonly RED='\033[0;31m'
+readonly GREEN='\033[0;32m'
+readonly YELLOW='\033[0;33m'
+readonly CYAN='\033[0;36m'
+readonly DIM='\033[2m'
+readonly NC='\033[0m'
 
 #-------------------------------------------------------------------------------
-# Konfiguration (used by sourced lib/ files)
+# Konfiguration
 #-------------------------------------------------------------------------------
+readonly MODE_MINIMAL="--minimal"
+readonly MODE_FULL="--full"
+readonly MODE_DEFAULT="$MODE_FULL"
+readonly LOG_FILE="$HOME/.wsl-setup.log"
+readonly NVM_VERSION="0.40.1"
+readonly NODE_VERSION="lts/*"
+readonly LOCAL_BIN_DIR="$HOME/.local/bin"
+readonly BASHRC_PATH="$HOME/.bashrc"
+readonly SSH_DIR="$HOME/.ssh"
+readonly SSH_CONFIG="$SSH_DIR/config"
+readonly SSH_KEY="$SSH_DIR/id_ed25519"
+readonly WSL_CONF_FILE="/etc/wsl.conf"
+
 # shellcheck disable=SC2034
-{
-  readonly MODE_MINIMAL="--minimal"
-  readonly MODE_FULL="--full"
-  readonly MODE_DEFAULT="$MODE_FULL"
-  readonly LOG_FILE="$HOME/.wsl-setup.log"
-  readonly NVM_VERSION="0.40.1"
-  readonly NODE_VERSION="lts/*"
-  readonly LOCAL_BIN_DIR="$HOME/.local/bin"
-  readonly PIP_CONFIG_DIR="$HOME/.config/pip"
-  readonly PIP_CONFIG_FILE="$PIP_CONFIG_DIR/pip.conf"
-  readonly BASHRC_PATH="$HOME/.bashrc"
-  readonly SSH_DIR="$HOME/.ssh"
-  readonly SSH_CONFIG="$SSH_DIR/config"
-  readonly SSH_KEY="$SSH_DIR/id_ed25519"
-  readonly WSL_CONF_FILE="/etc/wsl.conf"
-}
-
 INSTALL_MODE="$MODE_DEFAULT"
 DRY_RUN=false
 GIT_USER_NAME=""
@@ -55,43 +56,53 @@ GIT_USER_EMAIL=""
 SSH_KEY_EMAIL=""
 
 #-------------------------------------------------------------------------------
+# Logging
+#-------------------------------------------------------------------------------
+log()           { echo "[$(date '+%H:%M:%S')] $*" >> "$LOG_FILE" 2>/dev/null || true; }
+print_step()    { printf '\n%b  >> %s%b\n' "$CYAN" "$*" "$NC";   log "STEP: $*"; }
+print_success() { printf '%b  v  %s%b\n'  "$GREEN" "$*" "$NC";   log "OK:   $*"; }
+print_warning() { printf '%b  !  %s%b\n'  "$YELLOW" "$*" "$NC";  log "WARN: $*"; }
+print_error()   { printf '%b  x  %s%b\n'  "$RED" "$*" "$NC" >&2; log "ERR:  $*"; }
+print_dim()     { printf '%b     %s%b\n'  "$DIM" "$*" "$NC"; }
+
+#-------------------------------------------------------------------------------
+# Hilfsfunktionen
+#-------------------------------------------------------------------------------
+
+# Zeile zu Datei hinzufuegen, wenn Marker noch nicht vorhanden
+append_if_missing() {
+  local file="$1" marker="$2"
+  shift 2
+  local content="$*"
+  grep -qF "$marker" "$file" 2>/dev/null || printf '\n%s\n' "$content" >> "$file"
+}
+
+ensure_user_symlink() {
+  local source_bin="$1" target_bin="$2"
+  if command -v "$source_bin" &>/dev/null && [[ ! -e "$LOCAL_BIN_DIR/$target_bin" ]]; then
+    mkdir -p "$LOCAL_BIN_DIR"
+    ln -sf "$(command -v "$source_bin")" "$LOCAL_BIN_DIR/$target_bin"
+  fi
+}
+
+#-------------------------------------------------------------------------------
 # CLI Argument Parsing
 #-------------------------------------------------------------------------------
 is_valid_email() {
   local email="$1"
-
   [[ -z "$email" ]] && return 0
-
-  if [[ ${#email} -gt 254 ]]; then
-    return 1
-  fi
-
-  if [[ ! "$email" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]]; then
-    return 1
-  fi
-
-  if [[ "$email" == *..* ]]; then
-    return 1
-  fi
-
+  [[ ${#email} -gt 254 ]] && return 1
+  [[ ! "$email" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]] && return 1
+  [[ "$email" == *..* ]] && return 1
   local local_part="${email%@*}"
   local domain_part="${email#*@}"
-
-  if [[ "$local_part" == .* || "$local_part" == *. ]]; then
-    return 1
-  fi
-
-  if [[ "$domain_part" == .* || "$domain_part" == *. ]]; then
-    return 1
-  fi
-
+  [[ "$local_part" == .* || "$local_part" == *. ]] && return 1
+  [[ "$domain_part" == .* || "$domain_part" == *. ]] && return 1
   return 0
 }
 
 assert_valid_email_or_exit() {
-  local value="$1"
-  local option_name="$2"
-
+  local value="$1" option_name="$2"
   if ! is_valid_email "$value"; then
     print_error "Ungueltige E-Mail-Adresse fuer $option_name: $value"
     exit 1
@@ -102,88 +113,486 @@ parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --minimal) INSTALL_MODE="$MODE_MINIMAL" ;;
-      --full) INSTALL_MODE="$MODE_FULL" ;;
+      --full)    INSTALL_MODE="$MODE_FULL" ;;
       --dry-run) DRY_RUN=true ;;
       --git-user-name)
         shift
-        if [[ -z "${1:-}" ]]; then
-          print_error "Fehlender Wert fuer --git-user-name"
-          exit 1
-        fi
+        [[ -z "${1:-}" ]] && { print_error "Fehlender Wert fuer --git-user-name"; exit 1; }
         GIT_USER_NAME="$1"
         ;;
       --git-user-email)
         shift
-        if [[ -z "${1:-}" ]]; then
-          print_error "Fehlender Wert fuer --git-user-email"
-          exit 1
-        fi
+        [[ -z "${1:-}" ]] && { print_error "Fehlender Wert fuer --git-user-email"; exit 1; }
         GIT_USER_EMAIL="$1"
         assert_valid_email_or_exit "$GIT_USER_EMAIL" "--git-user-email"
         ;;
       --ssh-key-email)
         shift
-        if [[ -z "${1:-}" ]]; then
-          print_error "Fehlender Wert fuer --ssh-key-email"
-          exit 1
-        fi
+        [[ -z "${1:-}" ]] && { print_error "Fehlender Wert fuer --ssh-key-email"; exit 1; }
         SSH_KEY_EMAIL="$1"
         assert_valid_email_or_exit "$SSH_KEY_EMAIL" "--ssh-key-email"
         ;;
-      --help | -h)
-        show_help
-        exit 0
-        ;;
-      *)
-        print_error "Unbekannte Option: $1"
-        show_help
-        exit 1
-        ;;
+      --help|-h) show_help; exit 0 ;;
+      *) print_error "Unbekannte Option: $1"; show_help; exit 1 ;;
     esac
     shift
   done
 }
 
 #-------------------------------------------------------------------------------
-# Hilfsfunktionen
+# System-Update
 #-------------------------------------------------------------------------------
-ensure_user_symlink() {
-  local source_bin="$1"
-  local target_bin="$2"
+system_update() {
+  print_step "System aktualisieren..."
+  if [[ "$DRY_RUN" == true ]]; then print_dim "[DRY-RUN] apt-get update + full-upgrade"; return; fi
+  sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq
+  sudo DEBIAN_FRONTEND=noninteractive apt-get full-upgrade -y -qq
+  print_success "System aktuell"
+}
 
-  if command -v "$source_bin" &>/dev/null && [[ ! -e "$LOCAL_BIN_DIR/$target_bin" ]]; then
-    mkdir -p "$LOCAL_BIN_DIR"
-    ln -sf "$(command -v "$source_bin")" "$LOCAL_BIN_DIR/$target_bin"
+#-------------------------------------------------------------------------------
+# Basis-Pakete
+#-------------------------------------------------------------------------------
+install_base_packages() {
+  print_step "Basis-Pakete installieren..."
+  local -a packages=(
+    curl wget git gnupg2 ca-certificates
+    apt-transport-https software-properties-common
+    lsb-release locales unzip zip
+    build-essential pkg-config
+    openssh-client
+  )
+  if [[ "$DRY_RUN" == true ]]; then
+    print_dim "[DRY-RUN] apt install: ${packages[*]}"
+    return
   fi
+  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${packages[@]}"
+  print_success "Basis-Pakete (${#packages[@]}) installiert"
+}
+
+#-------------------------------------------------------------------------------
+# Locale
+#-------------------------------------------------------------------------------
+setup_locale() {
+  print_step "Locale konfigurieren..."
+  if [[ "$DRY_RUN" == true ]]; then print_dim "[DRY-RUN] locale-gen en_US.UTF-8 de_DE.UTF-8"; return; fi
+  sudo locale-gen en_US.UTF-8 de_DE.UTF-8
+  sudo update-locale LANG=en_US.UTF-8 LC_MESSAGES=POSIX
+  print_success "Locale: en_US.UTF-8 / de_DE.UTF-8"
+}
+
+#-------------------------------------------------------------------------------
+# /etc/wsl.conf
+#-------------------------------------------------------------------------------
+setup_wsl_conf() {
+  print_step "/etc/wsl.conf konfigurieren..."
+  if [[ "$DRY_RUN" == true ]]; then print_dim "[DRY-RUN] /etc/wsl.conf erstellen (systemd=true)"; return; fi
+  sudo tee "$WSL_CONF_FILE" > /dev/null <<'EOF'
+[boot]
+systemd=true
+
+[network]
+generateResolvConf=true
+
+[interop]
+appendWindowsPath=false
+EOF
+  print_success "/etc/wsl.conf erstellt (systemd=true, appendWindowsPath=false)"
+}
+
+#-------------------------------------------------------------------------------
+# Sysctl / Kernel-Parameter
+#-------------------------------------------------------------------------------
+setup_sysctl() {
+  print_step "Kernel-Parameter optimieren..."
+  if [[ "$DRY_RUN" == true ]]; then print_dim "[DRY-RUN] vm.swappiness=10, vm.vfs_cache_pressure=50"; return; fi
+  local conf='/etc/sysctl.d/99-wsl.conf'
+  sudo tee "$conf" > /dev/null <<'EOF'
+vm.swappiness=10
+vm.vfs_cache_pressure=50
+EOF
+  sudo sysctl -p "$conf" &>/dev/null || true
+  print_success "Kernel-Parameter gesetzt (vm.swappiness=10)"
+}
+
+#-------------------------------------------------------------------------------
+# Git
+#-------------------------------------------------------------------------------
+setup_git() {
+  print_step "Git konfigurieren..."
+  if [[ "$DRY_RUN" == true ]]; then print_dim "[DRY-RUN] git config --global ..."; return; fi
+
+  git config --global init.defaultBranch main
+  git config --global core.autocrlf false
+  git config --global core.eol lf
+  git config --global pull.rebase false
+  git config --global push.autoSetupRemote true
+  git config --global rerere.enabled true
+  git config --global diff.colorMoved zebra
+
+  # Git Credential Manager (Windows-seitig, falls verfuegbar)
+  local gcm
+  gcm=$(command -v git-credential-manager.exe 2>/dev/null || true)
+  if [[ -n "$gcm" ]]; then
+    git config --global credential.helper "$gcm"
+  fi
+
+  [[ -n "${GIT_USER_NAME:-}" ]]  && git config --global user.name  "$GIT_USER_NAME"
+  [[ -n "${GIT_USER_EMAIL:-}" ]] && git config --global user.email "$GIT_USER_EMAIL"
+
+  print_success "Git konfiguriert (main-Branch, LF, rebase=false, rerere)"
+}
+
+#-------------------------------------------------------------------------------
+# Shell (.bashrc)
+#-------------------------------------------------------------------------------
+setup_shell() {
+  print_step "Shell optimieren (.bashrc)..."
+  if [[ "$DRY_RUN" == true ]]; then print_dim "[DRY-RUN] .bashrc: History, Aliases, PATH"; return; fi
+
+  # History
+  append_if_missing "$BASHRC_PATH" "# wsl-setup:history" \
+'# wsl-setup:history
+HISTSIZE=10000
+HISTFILESIZE=20000
+HISTCONTROL=ignoreboth:erasedups
+shopt -s histappend
+PROMPT_COMMAND="history -a${PROMPT_COMMAND:+;$PROMPT_COMMAND}"'
+
+  # Aliases (ggf. von eza ueberschrieben falls im Full-Modus installiert)
+  append_if_missing "$BASHRC_PATH" "# wsl-setup:aliases" \
+'# wsl-setup:aliases
+alias ll="ls -alFh --color=auto"
+alias la="ls -Ah --color=auto"
+alias l="ls -CFh --color=auto"
+alias grep="grep --color=auto"
+alias ..="cd .."
+alias ...="cd ../.."
+alias mkdir="mkdir -pv"'
+
+  # PATH fuer ~/.local/bin
+  append_if_missing "$BASHRC_PATH" "# wsl-setup:path" \
+'# wsl-setup:path
+export PATH="$HOME/.local/bin:$PATH"'
+
+  print_success ".bashrc optimiert"
+}
+
+#-------------------------------------------------------------------------------
+# Readline (~/.inputrc)
+#-------------------------------------------------------------------------------
+setup_inputrc() {
+  print_step "Readline konfigurieren (~/.inputrc)..."
+  if [[ "$DRY_RUN" == true ]]; then print_dim "[DRY-RUN] ~/.inputrc erstellen"; return; fi
+  cat > "$HOME/.inputrc" <<'EOF'
+# History-Suche mit Pfeiltasten
+"\e[A": history-search-backward
+"\e[B": history-search-forward
+
+# Tab-Completion-Verbesserungen
+set completion-ignore-case on
+set show-all-if-ambiguous on
+set colored-stats on
+set mark-symlinked-directories on
+EOF
+  print_success "~/.inputrc erstellt"
+}
+
+#-------------------------------------------------------------------------------
+# SSH
+#-------------------------------------------------------------------------------
+setup_ssh() {
+  print_step "SSH einrichten..."
+  if [[ "$DRY_RUN" == true ]]; then print_dim "[DRY-RUN] ~/.ssh/ + ~/.ssh/config erstellen"; return; fi
+
+  mkdir -p "$SSH_DIR"
+  chmod 700 "$SSH_DIR"
+
+  if [[ ! -f "$SSH_CONFIG" ]]; then
+    cat > "$SSH_CONFIG" <<'EOF'
+Host *
+    ServerAliveInterval 60
+    ServerAliveCountMax 3
+    AddKeysToAgent yes
+
+Host github.com
+    User git
+    IdentityFile ~/.ssh/id_ed25519
+
+Host gitlab.com
+    User git
+    IdentityFile ~/.ssh/id_ed25519
+EOF
+    chmod 600 "$SSH_CONFIG"
+  fi
+
+  print_success "SSH konfiguriert"
 }
 
 #-------------------------------------------------------------------------------
 # SSH-Key-Generierung
 #-------------------------------------------------------------------------------
 generate_ssh_key_if_missing() {
-  if [[ -f "$SSH_KEY" ]]; then
-    return 0
-  fi
+  [[ -f "$SSH_KEY" ]] && return 0
+  [[ ! -t 0 ]] && return 0
 
-  if [[ ! -t 0 ]]; then
-    return 0
-  fi
-
-  local email="${SSH_KEY_EMAIL:-${GIT_USER_EMAIL:-}}"
   local reply
   read -r -p "  SSH-Key generieren? [J/n]: " reply
   reply="${reply:-j}"
-  if [[ "${reply,,}" != "j" && "${reply,,}" != "y" ]]; then
-    return 0
-  fi
+  [[ "${reply,,}" != "j" && "${reply,,}" != "y" ]] && return 0
 
-  print_step "SSH-Key generieren... (Enter = keine Passphrase, empfohlen: sichere Passphrase eingeben)"
+  local email="${SSH_KEY_EMAIL:-${GIT_USER_EMAIL:-}}"
+  print_step "SSH-Key generieren... (Enter = keine Passphrase)"
   mkdir -p "$SSH_DIR"
   chmod 700 "$SSH_DIR"
   ssh-keygen -t ed25519 -C "${email:-$(whoami)@$(hostname)}" -f "$SSH_KEY"
   print_success "SSH-Key erstellt: $SSH_KEY"
-  printf '\n  %bPublic Key (fuer GitHub/GitLab unter Settings → SSH Keys einfuegen):%b\n' "$CYAN" "$NC"
+  printf '\n  %bPublic Key (fuer GitHub/GitLab → Settings → SSH Keys einfuegen):%b\n' "$CYAN" "$NC"
   printf '  %s\n\n' "$(cat "${SSH_KEY}.pub")"
+}
+
+#-------------------------------------------------------------------------------
+# CLI-Tools (Full-Mode)
+#-------------------------------------------------------------------------------
+install_cli_tools() {
+  print_step "CLI-Tools installieren..."
+
+  if [[ "$DRY_RUN" == true ]]; then
+    print_dim "[DRY-RUN] apt: ripgrep, fd-find, bat, fzf, tmux, ncdu, direnv"
+    print_dim "[DRY-RUN] eza (GitHub Releases), zoxide, gh (GitHub CLI)"
+    return
+  fi
+
+  local -a apt_tools=(ripgrep fd-find bat fzf tmux ncdu direnv)
+  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${apt_tools[@]}"
+
+  mkdir -p "$LOCAL_BIN_DIR"
+
+  # Ubuntu-spezifische Binarnamen mit Symlinks korrigieren
+  ensure_user_symlink batcat bat
+  ensure_user_symlink fdfind fd
+
+  _install_eza
+  _install_zoxide
+  _install_gh_cli
+
+  print_success "CLI-Tools installiert"
+}
+
+_install_eza() {
+  command -v eza &>/dev/null && { print_success "eza bereits vorhanden"; return; }
+  local tmp; tmp=$(mktemp -d)
+  local url="https://github.com/eza-community/eza/releases/latest/download/eza_x86_64-unknown-linux-gnu.tar.gz"
+  if curl -fsSL "$url" -o "$tmp/eza.tar.gz" 2>/dev/null; then
+    tar xzf "$tmp/eza.tar.gz" -C "$tmp" 2>/dev/null
+    install -m 755 "$tmp/eza" "$LOCAL_BIN_DIR/eza"
+    print_success "eza installiert"
+    # ls-Aliases auf eza umstellen
+    append_if_missing "$BASHRC_PATH" "# wsl-setup:eza" \
+'# wsl-setup:eza
+alias ls="eza --color=auto --group-directories-first"
+alias ll="eza -alFh --git --group-directories-first"
+alias la="eza -ah --group-directories-first"
+alias lt="eza --tree --level=2"'
+  else
+    print_warning "eza: Download fehlgeschlagen – uebersprungen"
+  fi
+  rm -rf "$tmp"
+}
+
+_install_zoxide() {
+  command -v zoxide &>/dev/null && { print_success "zoxide bereits vorhanden"; return; }
+  if curl -fsSL https://raw.githubusercontent.com/ajeetdsouza/zoxide/main/install.sh | bash 2>/dev/null; then
+    print_success "zoxide installiert"
+    append_if_missing "$BASHRC_PATH" "# wsl-setup:zoxide" \
+'# wsl-setup:zoxide
+eval "$(zoxide init bash)"'
+  else
+    print_warning "zoxide: Installation fehlgeschlagen – uebersprungen"
+  fi
+}
+
+_install_gh_cli() {
+  command -v gh &>/dev/null && { print_success "gh bereits vorhanden"; return; }
+  local keyring='/etc/apt/keyrings/githubcli-archive-keyring.gpg'
+  if curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+      | sudo dd of="$keyring" 2>/dev/null \
+    && sudo chmod go+r "$keyring" \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=$keyring] \
+https://cli.github.com/packages stable main" \
+        | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
+    && sudo apt-get update -qq \
+    && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq gh; then
+    print_success "gh (GitHub CLI) installiert"
+  else
+    print_warning "gh: Installation fehlgeschlagen – uebersprungen"
+  fi
+}
+
+#-------------------------------------------------------------------------------
+# Browser-Integration
+#-------------------------------------------------------------------------------
+install_browser_integration() {
+  print_step "Browser-Integration installieren (xdg-utils, wslu)..."
+  if [[ "$DRY_RUN" == true ]]; then print_dim "[DRY-RUN] apt install xdg-utils wslu"; return; fi
+  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq xdg-utils wslu 2>/dev/null \
+    && print_success "Browser-Integration bereit (wslview)" \
+    || print_warning "wslu nicht verfuegbar – uebersprungen"
+}
+
+#-------------------------------------------------------------------------------
+# Dev-Dependencies
+#-------------------------------------------------------------------------------
+install_dev_dependencies() {
+  print_step "Dev-Dependencies installieren..."
+  local -a packages=(
+    # Compiler & Debugger
+    gcc g++ gdb clang clang-format clang-tidy lldb
+    # Build
+    cmake make ninja-build
+    # Datenbank
+    sqlite3 postgresql-client
+    # Tools
+    jq tree file htop shellcheck
+  )
+  if [[ "$DRY_RUN" == true ]]; then
+    print_dim "[DRY-RUN] apt install: ${packages[*]}"
+    return
+  fi
+  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${packages[@]}" 2>/dev/null \
+    || print_warning "Einige Dev-Pakete konnten nicht installiert werden"
+  print_success "Dev-Dependencies installiert"
+}
+
+#-------------------------------------------------------------------------------
+# Python + uv
+#-------------------------------------------------------------------------------
+setup_python() {
+  print_step "Python + uv installieren..."
+  if [[ "$DRY_RUN" == true ]]; then print_dim "[DRY-RUN] python3, pip, venv + uv (astral.sh)"; return; fi
+
+  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+    python3 python3-pip python3-venv python3-dev 2>/dev/null
+
+  if ! command -v uv &>/dev/null; then
+    curl -fsSL https://astral.sh/uv/install.sh | bash 2>/dev/null \
+      && print_success "uv installiert" \
+      || print_warning "uv: Installation fehlgeschlagen – uebersprungen"
+  fi
+
+  # pip-Konfiguration: kein break-system-packages noetig
+  mkdir -p "$HOME/.config/pip"
+  cat > "$HOME/.config/pip/pip.conf" <<'EOF'
+[global]
+break-system-packages = false
+EOF
+
+  # uv in PATH
+  append_if_missing "$BASHRC_PATH" "# wsl-setup:uv" \
+'# wsl-setup:uv
+export PATH="$HOME/.local/bin:$PATH"'
+
+  local py_version
+  py_version=$(python3 --version 2>/dev/null | cut -d' ' -f2)
+  print_success "Python $py_version + uv"
+}
+
+#-------------------------------------------------------------------------------
+# Node.js via nvm
+#-------------------------------------------------------------------------------
+setup_nodejs() {
+  print_step "Node.js (nvm $NVM_VERSION) installieren..."
+  if [[ "$DRY_RUN" == true ]]; then
+    print_dim "[DRY-RUN] nvm ${NVM_VERSION} + Node.js ${NODE_VERSION} + pnpm"
+    return
+  fi
+
+  local nvm_dir="$HOME/.nvm"
+
+  if [[ ! -s "$nvm_dir/nvm.sh" ]]; then
+    curl -fsSL "https://raw.githubusercontent.com/nvm-sh/nvm/v${NVM_VERSION}/install.sh" \
+      | bash 2>/dev/null \
+      || { print_warning "nvm: Installation fehlgeschlagen – uebersprungen"; return; }
+    print_success "nvm ${NVM_VERSION} installiert"
+  fi
+
+  export NVM_DIR="$nvm_dir"
+  # shellcheck source=/dev/null
+  [[ -s "$NVM_DIR/nvm.sh" ]] && source "$NVM_DIR/nvm.sh"
+
+  nvm install "$NODE_VERSION" 2>/dev/null
+  nvm use "$NODE_VERSION"     2>/dev/null
+  nvm alias default "$NODE_VERSION" 2>/dev/null
+
+  if ! command -v pnpm &>/dev/null; then
+    npm install -g pnpm 2>/dev/null \
+      && print_success "pnpm installiert" \
+      || print_warning "pnpm: Installation fehlgeschlagen"
+  fi
+
+  local node_ver
+  node_ver=$(node --version 2>/dev/null)
+  print_success "Node.js $node_ver + pnpm"
+}
+
+#-------------------------------------------------------------------------------
+# tmux-Konfiguration
+#-------------------------------------------------------------------------------
+setup_tmux() {
+  print_step "tmux konfigurieren (~/.tmux.conf)..."
+  if [[ "$DRY_RUN" == true ]]; then print_dim "[DRY-RUN] ~/.tmux.conf erstellen"; return; fi
+
+  cat > "$HOME/.tmux.conf" <<'EOF'
+# Prefix: Ctrl+a (wie GNU screen)
+unbind C-b
+set -g prefix C-a
+bind C-a send-prefix
+
+# Fenster-Splitting
+bind | split-window -h -c "#{pane_current_path}"
+bind - split-window -v -c "#{pane_current_path}"
+unbind '"'
+unbind %
+
+# Pane-Navigation (Vi-Style)
+bind h select-pane -L
+bind j select-pane -D
+bind k select-pane -U
+bind l select-pane -R
+
+# Vi-Modus
+setw -g mode-keys vi
+bind-key -T copy-mode-vi v send-keys -X begin-selection
+bind-key -T copy-mode-vi y send-keys -X copy-selection-and-cancel
+
+# Mouse
+set -g mouse on
+
+# Farben & Terminal
+set -g default-terminal "tmux-256color"
+set -ga terminal-overrides ",xterm-256color:Tc"
+
+# Fenster-Nummerierung ab 1
+set -g base-index 1
+setw -g pane-base-index 1
+set -g renumber-windows on
+
+# Kein Delay nach Escape
+set -s escape-time 10
+
+# Laengeren History-Puffer
+set -g history-limit 10000
+
+# Status-Bar
+set -g status-style 'bg=#1e1e2e fg=#cdd6f4'
+set -g status-left-length 30
+set -g status-right "#[fg=#a6e3a1]%H:%M  #[fg=#89b4fa]%d.%m.%Y"
+set -g window-status-current-style 'fg=#1e1e2e bg=#89b4fa bold'
+
+# Config neu laden
+bind r source-file ~/.tmux.conf \; display "~/.tmux.conf neu geladen"
+EOF
+  print_success "~/.tmux.conf erstellt"
 }
 
 #-------------------------------------------------------------------------------
@@ -203,70 +612,54 @@ trap cleanup EXIT
 #-------------------------------------------------------------------------------
 preflight_checks() {
   if [[ $EUID -eq 0 ]]; then
-    print_error "Nicht als root ausfuehren! Verwende normalen User."
+    print_error "Nicht als root ausfuehren! Normalen User verwenden."
     exit 1
   fi
 
   if ! grep -qi microsoft /proc/version 2>/dev/null; then
-    print_warning "Nicht in WSL2 — einige Features deaktiviert"
+    print_warning "Nicht in WSL2 erkannt – einige Features koennen fehlen"
   fi
 
-  local required_cmd
   local -a required_cmds=(sudo apt-get curl git)
-  for required_cmd in "${required_cmds[@]}"; do
-    if ! command -v "$required_cmd" &>/dev/null; then
-      print_error "Benoetigter Befehl fehlt: $required_cmd"
-      exit 1
-    fi
+  local cmd
+  for cmd in "${required_cmds[@]}"; do
+    command -v "$cmd" &>/dev/null || { print_error "Benoetigt: $cmd"; exit 1; }
   done
 
   if ! sudo -n true 2>/dev/null; then
-    print_step "Sudo-Berechtigung wird geprueft..."
+    print_step "Sudo-Berechtigung pruefen..."
     sudo -v
   fi
 }
 
 collect_identity_inputs() {
-  if [[ "$DRY_RUN" == true ]]; then
-    return
-  fi
+  [[ "$DRY_RUN" == true ]] && return
+  [[ ! -t 0 ]] && return
 
-  if [[ ! -t 0 ]]; then
-    return
-  fi
-
-  print_step "Benutzerdaten (am Anfang)"
+  print_step "Benutzerdaten (optional – Enter zum Ueberspringen)"
 
   if [[ -z "$GIT_USER_NAME" ]]; then
-    read -r -p "  Git Benutzername (optional): " GIT_USER_NAME
+    read -r -p "  Git Benutzername: " GIT_USER_NAME
   fi
 
   if [[ -z "$GIT_USER_EMAIL" ]]; then
     while true; do
-      read -r -p "  Git E-Mail (optional): " GIT_USER_EMAIL
-      if is_valid_email "$GIT_USER_EMAIL"; then
-        break
-      fi
-      print_warning "Ungueltige E-Mail-Adresse. Bitte erneut eingeben."
+      read -r -p "  Git E-Mail: " GIT_USER_EMAIL
+      is_valid_email "$GIT_USER_EMAIL" && break
+      [[ -z "$GIT_USER_EMAIL" ]] && break
+      print_warning "Ungueltige E-Mail-Adresse. Erneut versuchen."
     done
   fi
 
   if [[ -z "$SSH_KEY_EMAIL" ]]; then
     while true; do
-      if [[ -n "$GIT_USER_EMAIL" ]]; then
-        read -r -p "  SSH-Key E-Mail (Enter = $GIT_USER_EMAIL): " SSH_KEY_EMAIL
-        if [[ -z "$SSH_KEY_EMAIL" ]]; then
-          SSH_KEY_EMAIL="$GIT_USER_EMAIL"
-        fi
-      else
-        read -r -p "  SSH-Key E-Mail (optional): " SSH_KEY_EMAIL
-      fi
-
-      if is_valid_email "$SSH_KEY_EMAIL"; then
-        break
-      fi
-
-      print_warning "Ungueltige E-Mail-Adresse. Bitte erneut eingeben."
+      local prompt="  SSH-Key E-Mail"
+      [[ -n "$GIT_USER_EMAIL" ]] && prompt="  SSH-Key E-Mail (Enter = $GIT_USER_EMAIL)"
+      read -r -p "$prompt: " SSH_KEY_EMAIL
+      [[ -z "$SSH_KEY_EMAIL" && -n "$GIT_USER_EMAIL" ]] && SSH_KEY_EMAIL="$GIT_USER_EMAIL"
+      is_valid_email "$SSH_KEY_EMAIL" && break
+      [[ -z "$SSH_KEY_EMAIL" ]] && break
+      print_warning "Ungueltige E-Mail-Adresse. Erneut versuchen."
       SSH_KEY_EMAIL=""
     done
   fi
@@ -276,34 +669,33 @@ collect_identity_inputs() {
 # Help
 #-------------------------------------------------------------------------------
 show_help() {
-  cat <<'EOF_HELP'
-Ubuntu WSL2 Setup - Optimierte Entwicklungsumgebung
+  cat <<'EOF'
+Ubuntu WSL2 Setup – Optimierte Entwicklungsumgebung
 
 VERWENDUNG:
   ./ubuntu-wsl-setup.sh [OPTIONEN]
 
 OPTIONEN:
-  --minimal            Basis-System + Git + Shell + SSH (ohne Dev-Tools)
+  --minimal            Basis-System + Git + Shell + SSH
   --full               Alles installieren (Standard)
-  --dry-run            Zeigt geplante Schritte ohne Ausfuehrung
-  --git-user-name N    Git user.name vorbelegen (optional)
-  --git-user-email E   Git user.email vorbelegen (optional)
-  --ssh-key-email E    E-Mail fuer SSH-Key-Hinweis vorbelegen (optional)
-  --help, -h           Diese Hilfe anzeigen
+  --dry-run            Geplante Schritte anzeigen ohne Ausfuehrung
+  --git-user-name N    Git user.name vorbelegen
+  --git-user-email E   Git user.email vorbelegen
+  --ssh-key-email E    E-Mail fuer SSH-Key vorbelegen
+  --help, -h           Diese Hilfe
 
-MODI:
-  --minimal installiert:
-    - System-Update, Basis-Pakete, Locale, WSL-Config, Sysctl
-    - Git-Konfiguration (+ Credential Helper), Shell, Readline, SSH
+MINIMAL installiert:
+  System-Update, Basis-Pakete, Locale, /etc/wsl.conf, Kernel-Parameter,
+  Git, Shell (.bashrc), Readline (.inputrc), SSH
 
-  --full installiert zusaetzlich:
-    - CLI-Tools (ripgrep, fzf, fd, bat, tmux, ncdu, eza, zoxide, gh, direnv)
-    - Browser-Integration (wslview)
-    - Dev-Dependencies (Compiler, Debugger, Linter, DB-Clients)
-    - Python + uv
-    - Node.js (via nvm) + pnpm
-    - tmux-Konfiguration
-EOF_HELP
+FULL installiert zusaetzlich:
+  CLI-Tools: ripgrep, fd, bat, fzf, tmux, ncdu, eza, zoxide, gh, direnv
+  Browser-Integration: xdg-utils, wslu (wslview)
+  Dev-Dependencies: gcc, clang, cmake, sqlite3, postgresql-client, jq, shellcheck
+  Python 3 + uv (astral.sh)
+  Node.js LTS (via nvm) + pnpm
+  tmux-Konfiguration (~/.tmux.conf)
+EOF
 }
 
 #-------------------------------------------------------------------------------
@@ -311,14 +703,14 @@ EOF_HELP
 #-------------------------------------------------------------------------------
 show_banner() {
   printf '%b' "$CYAN"
-  cat <<'EOF_BANNER'
+  cat <<'EOF'
   _   _ _                 _          ____       _
  | | | | |__  _   _ _ __ | |_ _   _ / ___|  ___| |_ _   _ _ __
  | | | | '_ \| | | | '_ \| __| | | | \___ \ / _ \ __| | | | '_ \
  | |_| | |_) | |_| | | | | |_| |_| |  ___) |  __/ |_| |_| | |_) |
   \___/|_.__/ \__,_|_| |_|\__|\__,_| |____/ \___|\__|\__,_| .__/
-                                                          |_|
-EOF_BANNER
+                                                           |_|
+EOF
   printf '%b\n' "$NC"
   printf '%b  Mode: %s | Log: %s%b\n' "$DIM" "$INSTALL_MODE" "$LOG_FILE" "$NC"
   if [[ "$DRY_RUN" == true ]]; then
@@ -328,76 +720,82 @@ EOF_BANNER
 }
 
 #-------------------------------------------------------------------------------
-# Dry-Run Support
+# Dry-Run Plan
 #-------------------------------------------------------------------------------
 show_dry_run_plan() {
   print_step "Geplante Schritte (Dry-Run):"
   echo ""
-  echo "  Immer:"
-  echo "    1. System aktualisieren (apt update/upgrade)"
-  echo "    2. Basis-Pakete installieren ($(wc -w <<<"$(load_packages BASE "${SCRIPT_DIR}/config/packages.conf")" 2>/dev/null || echo '?') Pakete)"
+  echo "  Immer ($INSTALL_MODE):"
+  echo "    1. System aktualisieren (apt-get update + full-upgrade)"
+  echo "    2. Basis-Pakete installieren (curl, wget, git, gnupg2, build-essential, ...)"
   echo "    3. Locale konfigurieren (en_US.UTF-8, de_DE.UTF-8)"
-  echo "    4. /etc/wsl.conf erstellen"
+  echo "    4. /etc/wsl.conf erstellen (systemd=true, appendWindowsPath=false)"
   echo "    5. Kernel-Parameter optimieren (vm.swappiness=10)"
-  echo "    6. Git konfigurieren (+ Credential Helper)"
-  echo "    7. Shell optimieren (.bashrc)"
+  echo "    6. Git konfigurieren (main-Branch, LF, rebase=false, rerere)"
+  echo "    7. Shell optimieren (.bashrc – History, Aliases, PATH)"
   echo "    8. Readline konfigurieren (~/.inputrc)"
-  echo "    9. SSH einrichten"
+  echo "    9. SSH einrichten (~/.ssh/config)"
 
   if [[ "$INSTALL_MODE" == "$MODE_FULL" ]]; then
     echo ""
     echo "  Full-Mode zusaetzlich:"
-    echo "    10. CLI-Tools (ripgrep, fzf, fd, bat, tmux, ncdu, eza, zoxide, gh, direnv)"
-    echo "    11. Browser-Integration (xdg-utils, wslu)"
-    echo "    12. Dev-Dependencies (Compiler, Debugger, DB-Clients, ...)"
-    echo "    13. Python + uv"
-    echo "    14. Node.js (nvm) + pnpm"
-    echo "    15. tmux konfigurieren (~/.tmux.conf)"
+    echo "   10. CLI-Tools (ripgrep, fd, bat, fzf, tmux, ncdu, direnv)"
+    echo "   11. eza (modernes ls, via GitHub Releases)"
+    echo "   12. zoxide (smarter cd)"
+    echo "   13. gh (GitHub CLI, via apt)"
+    echo "   14. Browser-Integration (xdg-utils, wslu)"
+    echo "   15. Dev-Dependencies (gcc, clang, cmake, sqlite3, jq, shellcheck, ...)"
+    echo "   16. Python 3 + uv (via astral.sh)"
+    echo "   17. Node.js LTS (via nvm ${NVM_VERSION}) + pnpm"
+    echo "   18. tmux-Konfiguration (~/.tmux.conf)"
   fi
 
   echo ""
-  print_dim "Zum Ausfuehren ohne --dry-run starten"
+  print_dim "Zum Ausfuehren Script ohne --dry-run starten"
 }
 
 #-------------------------------------------------------------------------------
 # Summary
 #-------------------------------------------------------------------------------
 show_summary() {
-  local py_version
-  py_version=$(python3 --version 2>/dev/null | cut -d' ' -f2)
+  local py_version=""
+  py_version=$(python3 --version 2>/dev/null | cut -d' ' -f2 || echo "nicht installiert")
 
   printf '\n%b' "$GREEN"
-  cat <<'EOF_SUMMARY'
+  cat <<'EOF'
 ===============================================================================
                          Setup abgeschlossen!
 ===============================================================================
-EOF_SUMMARY
+EOF
   printf '%b\n' "$NC"
 
   printf '  Installiert:\n'
-  printf '    %b+%b Kernel-Parameter (vm.swappiness=10)\n' "$GREEN" "$NC"
-  printf '    %b+%b Git, Shell-Optimierungen, Readline, SSH\n' "$GREEN" "$NC"
-  if command -v python3 &>/dev/null; then
-    printf '    %b+%b Python %s\n' "$GREEN" "$NC" "$py_version"
-  fi
+  printf '    %b+%b System-Update, Basis-Pakete, Locale, WSL-Config, Kernel-Parameter\n' "$GREEN" "$NC"
+  printf '    %b+%b Git, Shell (.bashrc), Readline (.inputrc), SSH\n' "$GREEN" "$NC"
+
+  command -v python3 &>/dev/null && \
+    printf '    %b+%b Python %s + uv\n' "$GREEN" "$NC" "$py_version"
+
   if [[ -s "$HOME/.nvm/nvm.sh" ]]; then
-    local node_version
-    node_version=$(. "$HOME/.nvm/nvm.sh" && node --version 2>/dev/null)
-    printf '    %b+%b Node.js %s\n' "$GREEN" "$NC" "$node_version"
+    local node_ver=""
+    # shellcheck source=/dev/null
+    node_ver=$(source "$HOME/.nvm/nvm.sh" && node --version 2>/dev/null || echo "")
+    [[ -n "$node_ver" ]] && printf '    %b+%b Node.js %s + pnpm\n' "$GREEN" "$NC" "$node_ver"
   fi
+
   if [[ "$INSTALL_MODE" == "$MODE_FULL" ]]; then
-    printf '    %b+%b CLI-Tools (inkl. eza, zoxide, gh, direnv), Browser-Integration\n' "$GREEN" "$NC"
-    printf '    %b+%b Dev-Dependencies (Lint/Test, Build, Debug, DB, HTTP)\n' "$GREEN" "$NC"
-    printf '    %b+%b tmux konfiguriert\n' "$GREEN" "$NC"
+    printf '    %b+%b CLI-Tools (ripgrep, fd, bat, eza, zoxide, fzf, gh, direnv)\n' "$GREEN" "$NC"
+    printf '    %b+%b Dev-Dependencies, Browser-Integration, tmux\n' "$GREEN" "$NC"
   fi
 
   printf '\n  Naechste Schritte:\n\n'
-  printf '  1. WSL neu starten (in PowerShell auf Windows ausfuehren, nicht hier):\n'
+  printf '  1. WSL neu starten (in Windows PowerShell ausfuehren):\n'
   printf '     %bwsl --shutdown%b\n\n' "$CYAN" "$NC"
+
   if [[ -n "${GIT_USER_NAME:-}" || -n "${GIT_USER_EMAIL:-}" ]]; then
-    printf '  2. Git konfiguriert:\n'
-    [[ -n "${GIT_USER_NAME:-}" ]] && printf '     Name:  %b%s%b\n' "$CYAN" "$GIT_USER_NAME" "$NC"
-    [[ -n "${GIT_USER_EMAIL:-}" ]] && printf '     Email: %b%s%b\n\n' "$CYAN" "$GIT_USER_EMAIL" "$NC"
+    printf '  2. Git-Konfiguration gesetzt:\n'
+    [[ -n "${GIT_USER_NAME:-}" ]]  && printf '     Name:   %b%s%b\n' "$CYAN" "$GIT_USER_NAME" "$NC"
+    [[ -n "${GIT_USER_EMAIL:-}" ]] && printf '     E-Mail: %b%s%b\n\n' "$CYAN" "$GIT_USER_EMAIL" "$NC"
   else
     printf '  2. Git-Benutzer setzen (optional):\n'
     printf '     %bgit config --global user.name "Dein Name"%b\n' "$CYAN" "$NC"
@@ -407,10 +805,11 @@ EOF_SUMMARY
   if [[ -f "$SSH_KEY" ]]; then
     printf '  3. SSH-Key vorhanden: %b%s.pub%b\n\n' "$CYAN" "$SSH_KEY" "$NC"
   else
-    local display_ssh_email="${SSH_KEY_EMAIL:-${GIT_USER_EMAIL:-deine@email.com}}"
+    local ssh_email="${SSH_KEY_EMAIL:-${GIT_USER_EMAIL:-deine@email.com}}"
     printf '  3. SSH-Key generieren (optional):\n'
-    printf '     %bssh-keygen -t ed25519 -C "%s"%b\n\n' "$CYAN" "$display_ssh_email" "$NC"
+    printf '     %bssh-keygen -t ed25519 -C "%s"%b\n\n' "$CYAN" "$ssh_email" "$NC"
   fi
+
   printf '  Log: %b%s%b\n\n' "$DIM" "$LOG_FILE" "$NC"
   printf '===============================================================================\n\n'
 }
@@ -431,7 +830,7 @@ main() {
     exit 0
   fi
 
-  : >"$LOG_FILE"
+  : > "$LOG_FILE"
   log "=== Setup gestartet: $INSTALL_MODE ==="
 
   # Basis (beide Modi)
@@ -444,7 +843,6 @@ main() {
   setup_shell
   setup_inputrc
   setup_ssh
-
   generate_ssh_key_if_missing
 
   # Full-Mode Extras

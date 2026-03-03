@@ -1,38 +1,72 @@
 # wsl-ubuntu-powershell
 
 ## Übersicht
-Automatisierungsscripts zum Einrichten und Verwalten von Ubuntu unter WSL2 auf Windows.
-Kombiniert PowerShell-Scripts für den WSL-Lifecycle mit einem umfangreichen Bash-Setup-Script.
+Automatisierungsscript zum Einrichten und Verwalten von Ubuntu unter WSL2 auf Windows.
+Ein PowerShell-Einstiegspunkt (`Setup-WSL.ps1`) steuert den gesamten Workflow,
+vom WSL2-Feature-Aktivieren bis zur vollständig konfigurierten Entwicklungsumgebung.
 
-## Architektur
-- Sprache: PowerShell (.ps1) + Bash (.sh)
-- Einstiegspunkt: `ubuntu-wsl-setup.sh` (Bash) bzw. nummerierte `.ps1`-Scripts (PowerShell)
-- Lib-Dateien: `lib/logging.sh`, `lib/packages.sh`, `lib/config.sh`, `lib/tools.sh`
+## Dateien
 
-## Script-Reihenfolge (PowerShell)
-1. `0_enable_wsl.ps1`     – WSL-Feature aktivieren
-2. `1_download_ubuntu.ps1` – Ubuntu-Image herunterladen
-3. `2_install_ubuntu.ps1`  – Ubuntu installieren + PATH setzen
-4. `3_reset_ubuntu.ps1`    – Ubuntu zurücksetzen
-5. `4_uninstall_ubuntu.ps1` – Ubuntu deinstallieren
+| Datei | Zweck |
+|-------|-------|
+| `Setup-WSL.ps1` | **Haupt-Script** – alle WSL-Lifecycle-Operationen |
+| `ubuntu-wsl-setup.sh` | Ubuntu-Konfiguration (self-contained, wird von PS1 aufgerufen) |
 
-## ubuntu-wsl-setup.sh – Modi
-```bash
-./ubuntu-wsl-setup.sh --minimal    # Basis + Git + Shell + SSH
-./ubuntu-wsl-setup.sh --full       # alles inkl. CLI, Dev, Python, Node.js
-./ubuntu-wsl-setup.sh --dry-run    # Vorschau ohne Ausführung
-./ubuntu-wsl-setup.sh --git-user-name "Name" --git-user-email "mail@example.com"
-./ubuntu-wsl-setup.sh --ssh-key-email "mail@example.com"
+## Verwendung
+
+```powershell
+# Ubuntu installieren (WSL2-Features aktivieren + Ubuntu-24.04 installieren)
+.\Setup-WSL.ps1
+
+# Ubuntu-Entwicklungsumgebung konfigurieren (nach erstem Login)
+.\Setup-WSL.ps1 setup
+
+# Minimal-Setup (nur Basis + Git + Shell + SSH)
+.\Setup-WSL.ps1 setup -SetupMode minimal
+
+# Git-Daten vorbelegen
+.\Setup-WSL.ps1 setup -GitUserName "Max Mustermann" -GitUserEmail "max@example.com"
+
+# Ubuntu neu installieren (alle Daten gelöscht!)
+.\Setup-WSL.ps1 reset
+
+# WSL-Status anzeigen
+.\Setup-WSL.ps1 status
+
+# Alles simulieren ohne Änderungen
+.\Setup-WSL.ps1 install -DryRun
+.\Setup-WSL.ps1 setup -DryRun
 ```
 
+## Actions (Setup-WSL.ps1)
+
+| Action | Beschreibung |
+|--------|-------------|
+| `install` | WSL2-Features aktivieren, Ubuntu-24.04 installieren (Standard) |
+| `setup` | ubuntu-wsl-setup.sh in WSL ausführen |
+| `reset` | Ubuntu deregistrieren + neu installieren |
+| `uninstall` | Ubuntu deregistrieren |
+| `status` | WSL-Status + installierte Distros anzeigen |
+
+## ubuntu-wsl-setup.sh – Modi
+
+| Modus | Installiert |
+|-------|-------------|
+| `--minimal` | System-Update, Basis-Pakete, Locale, wsl.conf, Git, Shell, SSH |
+| `--full` (Standard) | + CLI-Tools, Dev-Dependencies, Python+uv, Node.js+pnpm, tmux |
+
+## Anforderungen
+- Windows 10 Build 19041 (v2004) oder neuer / Windows 11
+- PowerShell 5.1+
+- Internet-Verbindung
+- Administrator-Rechte (für WSL-Feature-Aktivierung)
+
 ## Konventionen
-- Bash: `set -euo pipefail` in allen Scripts
-- Bash: `shellcheck` für Linting verwenden
-- PowerShell: PSScriptAnalyzer für Linting
-- Lib-Dateien werden via `source` geladen – Pfade relativ zu `SCRIPT_DIR`
-- Keine interaktiven Prompts (non-interactive-safe)
+- PowerShell: `Set-StrictMode -Version Latest`, PSScriptAnalyzer-kompatibel
+- Bash: `set -euo pipefail`, shellcheck-kompatibel
+- Dry-Run via `-DryRun` (PS) / `--dry-run` (Bash)
 
 ## Wichtige Befehle
-- Lint Bash: `shellcheck ubuntu-wsl-setup.sh lib/*.sh`
-- Lint PowerShell: `Invoke-ScriptAnalyzer -Path .`
-- Dry-Run testen: `bash ubuntu-wsl-setup.sh --dry-run`
+- Bash-Lint: `shellcheck ubuntu-wsl-setup.sh`
+- PS-Lint: `Invoke-ScriptAnalyzer -Path Setup-WSL.ps1`
+- Dry-Run: `.\Setup-WSL.ps1 install -DryRun`
