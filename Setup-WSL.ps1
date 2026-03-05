@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
     WSL2 Ubuntu Setup – Alles in einem Script
@@ -92,7 +92,8 @@ param(
 
     [switch]$DryRun,
     [switch]$RemoveWSLFeatures,
-    [switch]$Interactive
+    [switch]$Interactive,
+    [switch]$KeepWindowOpenInternal
 )
 
 Set-StrictMode -Version Latest
@@ -119,6 +120,70 @@ function Write-Ok     ([string]$Msg) { Write-Host "$($Script:C.Green)  v  $Msg$(
 function Write-Warn   ([string]$Msg) { Write-Host "$($Script:C.Yellow)  !  $Msg$($Script:C.Reset)" }
 function Write-Err    ([string]$Msg) { Write-Host "$($Script:C.Red)  x  $Msg$($Script:C.Reset)" }
 function Write-Dim    ([string]$Msg) { Write-Host "$($Script:C.Dim)     $Msg$($Script:C.Reset)" }
+
+function Test-IsExplorerLaunchContext {
+    if ([Environment]::GetCommandLineArgs() -match '-NonInteractive') { return $false }
+    if (-not [Environment]::UserInteractive) { return $false }
+    if ($Host.Name -ne 'ConsoleHost') { return $false }
+
+    try {
+        $pidNow = [int]$PID
+        for ($depth = 0; $depth -lt 6; $depth++) {
+            $proc = Get-CimInstance Win32_Process -Filter "ProcessId=$pidNow" -ErrorAction Stop
+            if (-not $proc) { break }
+
+            $name = [string]$proc.Name
+            if ($name -ieq 'explorer.exe') { return $true }
+
+            $parentId = [int]$proc.ParentProcessId
+            if ($parentId -le 0 -or $parentId -eq $pidNow) { break }
+            $pidNow = $parentId
+        }
+    } catch {
+        return $false
+    }
+
+    return $false
+}
+
+function Test-ShouldPauseOnExit {
+    if ([Environment]::GetCommandLineArgs() -match '-NonInteractive') { return $false }
+    if (-not [Environment]::UserInteractive) { return $false }
+    if ($Host.Name -ne 'ConsoleHost') { return $false }
+
+    if ($KeepWindowOpenInternal.IsPresent) { return $true }
+    if ($Script:ExplorerLaunch) { return $true }
+    return $false
+}
+
+function Exit-Script {
+    param(
+        [int]$Code = 0,
+        [switch]$ForcePause,
+        [switch]$NoPause
+    )
+
+    $shouldPause = $false
+    if (-not $NoPause) {
+        if ($ForcePause) {
+            $shouldPause = $true
+        } else {
+            $shouldPause = Test-ShouldPauseOnExit
+        }
+    }
+
+    if ($shouldPause) {
+        Write-Host ""
+        Write-Host "Druecken Sie eine beliebige Taste zum Beenden..." -ForegroundColor DarkGray
+        try {
+            $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
+        } catch {
+            # Fallback: Exit trotzdem sicher durchfuehren
+        }
+    }
+
+    exit $Code
+}
 
 #endregion
 
@@ -158,7 +223,7 @@ function Prompt-Choice {
         $isDefault = ($opt -eq $Default)
         $marker = if ($isDefault) { "$($Script:C.Green)>" } else { " " }
         $numStr = "[$num]"
-        $desc = if ($Descriptions.ContainsKey($opt)) { " – $($Descriptions[$opt])" } else { "" }
+        $desc = if ($Descriptions.ContainsKey($opt)) { " - $($Descriptions[$opt])" } else { "" }
         Write-Host "  $marker $numStr $opt$desc$($Script:C.Reset)"
     }
 
@@ -243,7 +308,7 @@ function Prompt-Confirm {
     if (-not $Script:IsInteractive) {
         if ($Destructive) {
             Write-Err "Destruktive Operation im nicht-interaktiven Modus nicht erlaubt: $Label"
-            exit 2
+            Exit-Script 2
         }
         return $Default
     }
@@ -360,7 +425,7 @@ function Show-Summary {
         $paddedValue = $value.PadRight($maxVal)
         $colorStart = if ($color) { $color } else { '' }
         $colorEnd   = if ($color) { $Script:C.Reset } else { '' }
-        return "  $($Script:C.Cyan)║$($Script:C.Reset)  $label: $colorStart$paddedValue$colorEnd  $($Script:C.Cyan)║$($Script:C.Reset)"
+        return "  $($Script:C.Cyan)║$($Script:C.Reset)  ${label}: $colorStart$paddedValue$colorEnd  $($Script:C.Cyan)║$($Script:C.Reset)"
     }
 
     Write-Host ""
@@ -466,7 +531,7 @@ function Assert-WindowsVersion {
     $build = [System.Environment]::OSVersion.Version.Build
     if ($build -lt 19041) {
         Write-Err "Windows Build $build wird nicht unterstuetzt. Mindestens Build 19041 (Win10 v2004) benoetigt."
-        exit 1
+        Exit-Script 1
     }
     Write-Ok "Windows Build $build"
 }
@@ -494,14 +559,15 @@ function Invoke-ElevatedIfNeeded {
     if ($SshKeyEmail)  { $argList += @("-SshKeyEmail",  '"' + ($SshKeyEmail  -replace '"', '""') + '"') }
     if ($RemoveWSLFeatures) { $argList += "-RemoveWSLFeatures" }
     if ($Script:ExplicitParams.ContainsKey('Interactive')) { $argList += "-Interactive:`$$($Interactive.IsPresent)" }
+    if ($KeepWindowOpenInternal -or $Script:ExplorerLaunch) { $argList += "-KeepWindowOpenInternal" }
 
     try {
         Start-Process powershell.exe -Verb RunAs -ArgumentList $argList
     } catch {
         Write-Err "UAC-Elevation fehlgeschlagen oder abgebrochen: $_"
-        exit 1
+        Exit-Script 1
     }
-    exit 0
+    Exit-Script 0 -NoPause
 }
 
 #endregion
@@ -540,15 +606,15 @@ function Enable-WSLFeatures {
                     Remove-ResumeTask
                     Write-Err "Neustart fehlgeschlagen: $_"
                     Write-Warn "Resume-Task wurde entfernt. Bitte manuell neu starten und danach: .\Setup-WSL.ps1 install"
-                    exit 1
+                    Exit-Script 1
                 }
             }
             Write-Warn "Kein Neustart – bitte manuell neu starten und dann: .\Setup-WSL.ps1 install"
-            exit 0
+            Exit-Script 0
         } else {
             Register-ResumeTask
             Write-Warn "Nicht-interaktiver Modus: Neustart-Task registriert. Bitte manuell neu starten."
-            exit 3
+            Exit-Script 3
         }
     }
 }
@@ -616,7 +682,7 @@ function Disable-WSLFeatures {
         }
     } else {
         Write-Warn "Nicht-interaktiver Modus: Bitte manuell neu starten."
-        exit 3
+        Exit-Script 3
     }
 }
 
@@ -659,7 +725,7 @@ function Install-Ubuntu {
     wsl --install -d $Distribution
     if ($LASTEXITCODE -ne 0) {
         Write-Err "$Distribution konnte nicht installiert werden (Exit-Code: $LASTEXITCODE)"
-        exit 1
+        Exit-Script 1
     }
     Write-Ok "$Distribution installiert"
 }
@@ -669,14 +735,14 @@ function Invoke-UbuntuSetup {
 
     if (-not (Get-IsDistributionInstalled)) {
         Write-Err "$Distribution ist nicht installiert. Zuerst: .\Setup-WSL.ps1 install"
-        exit 1
+        Exit-Script 1
     }
 
     # Bash-Script neben diesem PS1 suchen
     $bashScript = Join-Path $PSScriptRoot 'ubuntu-wsl-setup.sh'
     if (-not (Test-Path $bashScript)) {
         Write-Err "ubuntu-wsl-setup.sh nicht gefunden: $bashScript"
-        exit 1
+        Exit-Script 1
     }
 
     # Windows-Pfad → WSL-Pfad konvertieren
@@ -705,7 +771,7 @@ function Invoke-UbuntuSetup {
     & wsl @wslArgs
     if ($LASTEXITCODE -ne 0) {
         Write-Err "Ubuntu-Setup fehlgeschlagen (Exit-Code: $LASTEXITCODE)"
-        exit 1
+        Exit-Script 1
     }
     Write-Ok "Ubuntu-Setup abgeschlossen"
 }
@@ -724,7 +790,7 @@ function Reset-Ubuntu {
             wsl --unregister $Distribution
             if ($LASTEXITCODE -ne 0) {
                 Write-Err "wsl --unregister fehlgeschlagen (Exit-Code: $LASTEXITCODE)"
-                exit 1
+                Exit-Script 1
             }
             Write-Ok "$Distribution deregistriert"
         }
@@ -822,7 +888,7 @@ function Remove-Ubuntu {
     wsl --unregister $Distribution
     if ($LASTEXITCODE -ne 0) {
         Write-Err "wsl --unregister fehlgeschlagen (Exit-Code: $LASTEXITCODE)"
-        exit 1
+        Exit-Script 1
     }
     Write-Ok "$Distribution deregistriert"
     Remove-ResumeTask
@@ -868,6 +934,7 @@ function Show-WSLStatus {
 
 #region ── Main ──────────────────────────────────────────────────────────────
 
+$Script:ExplorerLaunch = Test-IsExplorerLaunchContext
 $Script:IsInteractive = Test-IsInteractiveSession
 
 if ($Script:IsInteractive) {
@@ -881,7 +948,7 @@ if ($Script:IsInteractive) {
     if (-not $DryRun -and $Action -ne 'status') {
         if (-not (Prompt-Confirm -Label 'Ausfuehren?' -Default $true)) {
             Write-Warn "Abgebrochen."
-            exit 2
+            Exit-Script 2
         }
     }
 }
@@ -920,11 +987,7 @@ switch ($Action) {
     }
 }
 
-# Bei Doppelklick-Start (via VBS/Explorer): Fenster offen halten
-if ($Script:IsInteractive -and $Host.Name -eq 'ConsoleHost') {
-    Write-Host ""
-    Write-Host "Druecken Sie eine beliebige Taste zum Beenden..." -ForegroundColor DarkGray
-    $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
-}
+$pauseAtEnd = $Script:IsInteractive -and $Host.Name -eq 'ConsoleHost'
+Exit-Script 0 -ForcePause:$pauseAtEnd
 
 #endregion

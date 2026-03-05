@@ -4,10 +4,18 @@ on:
   push:
     paths:
       - '*.sh'
+      - '*.ps1'
+      - '*.psm1'
+      - '*.psd1'
+      - '.gitattributes'
       - '.github/workflows/*.yml'
   pull_request:
     paths:
       - '*.sh'
+      - '*.ps1'
+      - '*.psm1'
+      - '*.psd1'
+      - '.gitattributes'
       - '.github/workflows/*.yml'
 
 jobs:
@@ -19,3 +27,31 @@ jobs:
 
       - name: Run ShellCheck
         run: shellcheck ubuntu-wsl-setup.sh ubuntu-wsl-validate.sh
+
+  powershell-encoding:
+    name: PowerShell Encoding
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify UTF-8 BOM for PowerShell files
+        run: |
+          set -euo pipefail
+
+          files="$(git ls-files '*.ps1' '*.psm1' '*.psd1')"
+          if [ -z "$files" ]; then
+            echo "No PowerShell files found."
+            exit 0
+          fi
+
+          failed=0
+          while IFS= read -r file; do
+            [ -z "$file" ] && continue
+            bom="$(od -An -tx1 -N3 "$file" | tr -d ' \n')"
+            if [ "$bom" != "efbbbf" ]; then
+              echo "::error file=$file::PowerShell files must be UTF-8 with BOM (EF BB BF)."
+              failed=1
+            fi
+          done <<< "$files"
+
+          exit "$failed"
