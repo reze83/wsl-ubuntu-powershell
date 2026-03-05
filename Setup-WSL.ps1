@@ -99,7 +99,10 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$Script:ExplicitParams = $PSBoundParameters.Clone()
+$Script:ExplicitParams = @{}
+foreach ($k in $PSBoundParameters.Keys) {
+    $Script:ExplicitParams[$k] = $PSBoundParameters[$k]
+}
 
 #region ── Farben & Ausgabe ──────────────────────────────────────────────────
 
