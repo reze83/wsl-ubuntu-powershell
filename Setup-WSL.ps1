@@ -8,6 +8,10 @@
     Aktiviert WSL2-Features, installiert Ubuntu, konfiguriert die Entwicklungsumgebung,
     und unterstuetzt Reset und Deinstallation.
 
+    Wird das Script ohne explizite Parameter aufgerufen und laeuft in einer
+    interaktiven Terminal-Session, startet automatisch ein deutschsprachiger
+    Einrichtungsassistent, der alle nötigen Einstellungen abfragt.
+
 .PARAMETER Action
     install   – WSL2-Features aktivieren und Ubuntu installieren (Standard)
     setup     – Ubuntu-Entwicklungsumgebung konfigurieren (laeuft in WSL)
@@ -41,8 +45,25 @@
     Nur wirksam wenn keine weiteren WSL-Distributionen installiert sind.
     Erfordert anschliessenden Neustart.
 
+.PARAMETER Interactive
+    Erzwingt den interaktiven Einrichtungsassistenten auch wenn er nicht
+    automatisch erkannt wird (z.B. in ConEmu oder anderen Terminal-Emulatoren).
+    Mit -Interactive:$false wird der Assistent immer deaktiviert.
+
+.NOTES
+    Exit-Codes:
+      0  – Erfolgreich abgeschlossen
+      1  – Fehler aufgetreten
+      2  – Benutzer hat abgebrochen / destruktive Operation im nicht-interaktiven Modus
+      3  – Neustart erforderlich (non-interaktiver Modus, kein Auto-Resume moeglich)
+
 .EXAMPLE
     .\Setup-WSL.ps1
+    Startet den interaktiven Assistenten (wenn in Terminal-Session)
+
+    .\Setup-WSL.ps1 -Interactive
+    Erzwingt den interaktiven Assistenten
+
     .\Setup-WSL.ps1 install -Distribution Ubuntu-24.04
     .\Setup-WSL.ps1 setup -SetupMode minimal
     .\Setup-WSL.ps1 setup -GitUserName "Max Mustermann" -GitUserEmail "max@example.com"
@@ -70,11 +91,14 @@ param(
     [string]$SshKeyEmail = '',
 
     [switch]$DryRun,
-    [switch]$RemoveWSLFeatures
+    [switch]$RemoveWSLFeatures,
+    [switch]$Interactive
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+
+$Script:ExplicitParams = $PSBoundParameters.Clone()
 
 #region ── Farben & Ausgabe ──────────────────────────────────────────────────
 
@@ -95,6 +119,282 @@ function Write-Ok     ([string]$Msg) { Write-Host "$($Script:C.Green)  v  $Msg$(
 function Write-Warn   ([string]$Msg) { Write-Host "$($Script:C.Yellow)  !  $Msg$($Script:C.Reset)" }
 function Write-Err    ([string]$Msg) { Write-Host "$($Script:C.Red)  x  $Msg$($Script:C.Reset)" }
 function Write-Dim    ([string]$Msg) { Write-Host "$($Script:C.Dim)     $Msg$($Script:C.Reset)" }
+
+#endregion
+
+#region ── Interaktiver Wizard ────────────────────────────────────────────────
+
+function Test-IsInteractiveSession {
+    if ($Script:ExplicitParams.ContainsKey('Interactive')) {
+        return $Interactive.IsPresent
+    }
+    if ([Environment]::GetCommandLineArgs() -match '-NonInteractive') { return $false }
+    if (-not [Environment]::UserInteractive) { return $false }
+    if (Test-ResumeTaskExists) { return $false }
+    try {
+        if ([Console]::WindowHeight -le 0) { return $false }
+    } catch { return $false }
+    return $true
+}
+
+function Test-ParamExplicit([string]$Name) {
+    return $Script:ExplicitParams.ContainsKey($Name)
+}
+
+function Prompt-Choice {
+    param(
+        [string]$Label,
+        [string[]]$Options,
+        [string]$Default = '',
+        [hashtable]$Descriptions = @{}
+    )
+
+    Write-Host ""
+    Write-Host "$($Script:C.Cyan)  $Label$($Script:C.Reset)"
+
+    for ($i = 0; $i -lt $Options.Length; $i++) {
+        $num = $i + 1
+        $opt = $Options[$i]
+        $isDefault = ($opt -eq $Default)
+        $marker = if ($isDefault) { "$($Script:C.Green)>" } else { " " }
+        $numStr = "[$num]"
+        $desc = if ($Descriptions.ContainsKey($opt)) { " – $($Descriptions[$opt])" } else { "" }
+        Write-Host "  $marker $numStr $opt$desc$($Script:C.Reset)"
+    }
+
+    $defaultHint = if ($Default) { " (Enter = $Default)" } else { "" }
+    Write-Host ""
+
+    $selected = $null
+    while ($null -eq $selected) {
+        $raw = Read-Host "  Auswahl$defaultHint"
+
+        if ($raw -eq '') {
+            if ($Default -ne '') {
+                $selected = $Default
+            } else {
+                Write-Warn "Bitte eine Auswahl treffen."
+            }
+        } elseif ($raw -match '^\d+$') {
+            $idx = [int]$raw - 1
+            if ($idx -ge 0 -and $idx -lt $Options.Length) {
+                $selected = $Options[$idx]
+            } else {
+                Write-Warn "Ungueltige Nummer. Bitte zwischen 1 und $($Options.Length) waehlen."
+            }
+        } else {
+            $match = $Options | Where-Object { $_ -eq $raw } | Select-Object -First 1
+            if ($match) {
+                $selected = $match
+            } else {
+                Write-Warn "Ungueltige Eingabe. Nummer (1-$($Options.Length)) oder Option direkt eingeben."
+            }
+        }
+    }
+
+    return $selected
+}
+
+function Prompt-Text {
+    param(
+        [string]$Label,
+        [string]$Default = '',
+        [switch]$AllowEmpty,
+        [string]$Hint = ''
+    )
+
+    $hintStr = ''
+    if ($Hint) {
+        $hintStr = " $($Script:C.Dim)($Hint)$($Script:C.Reset)"
+    }
+    $defaultHint = ''
+    if ($Default) {
+        $defaultHint = " $($Script:C.Dim)(Enter = $Default)$($Script:C.Reset)"
+    }
+
+    $result = $null
+    while ($null -eq $result) {
+        Write-Host ""
+        $raw = Read-Host "  $Label$hintStr$defaultHint"
+
+        if ($raw -eq '') {
+            if ($Default -ne '') {
+                $result = $Default
+            } elseif ($AllowEmpty) {
+                $result = ''
+            } else {
+                Write-Warn "Eingabe erforderlich."
+            }
+        } else {
+            $result = $raw
+        }
+    }
+
+    return $result
+}
+
+function Prompt-Confirm {
+    param(
+        [string]$Label,
+        [bool]$Default = $true,
+        [switch]$Destructive
+    )
+
+    if (-not $Script:IsInteractive) {
+        if ($Destructive) {
+            Write-Err "Destruktive Operation im nicht-interaktiven Modus nicht erlaubt: $Label"
+            exit 2
+        }
+        return $Default
+    }
+
+    $hint = if ($Default) { '[J/n]' } else { '[j/N]' }
+    $labelDisplay = if ($Destructive) {
+        "$($Script:C.Red)$Label$($Script:C.Reset)"
+    } else {
+        $Label
+    }
+
+    while ($true) {
+        Write-Host ""
+        $raw = Read-Host "  $labelDisplay $hint"
+
+        if ($raw -eq '') { return $Default }
+        if ($raw -match '^[jJyY]$') { return $true }
+        if ($raw -match '^[nN]$') { return $false }
+
+        if ($Destructive) {
+            Write-Warn "Bitte 'j' oder 'n' eingeben."
+        } else {
+            return $Default
+        }
+    }
+}
+
+function Start-InteractiveWizard {
+    Write-Host ""
+    Write-Host "$($Script:C.Cyan)$($Script:C.Bold)  Einrichtungsassistent$($Script:C.Reset)"
+    Write-Host "$($Script:C.Dim)  Alle Fragen mit Enter bestaetigen um den Standard zu nutzen.$($Script:C.Reset)"
+
+    # 1. Action
+    if (-not (Test-ParamExplicit 'Action')) {
+        $actionDescs = @{
+            'install'   = 'WSL2-Features aktivieren und Ubuntu installieren'
+            'setup'     = 'Ubuntu-Entwicklungsumgebung konfigurieren'
+            'reset'     = 'Ubuntu deregistrieren und neu installieren'
+            'uninstall' = 'Ubuntu deregistrieren'
+            'status'    = 'WSL-Status und verfuegbare Distros anzeigen'
+        }
+        $script:Action = Prompt-Choice -Label 'Aktion:' `
+            -Options @('install', 'setup', 'reset', 'uninstall', 'status') `
+            -Default 'install' `
+            -Descriptions $actionDescs
+    }
+
+    # 2. Distribution (skip for status)
+    if (-not (Test-ParamExplicit 'Distribution') -and $script:Action -ne 'status') {
+        $script:Distribution = Prompt-Choice -Label 'Distribution:' `
+            -Options @('Ubuntu-24.04', 'Ubuntu-22.04', 'Ubuntu') `
+            -Default 'Ubuntu-24.04'
+    }
+
+    # 3. SetupMode (only for install/setup)
+    if (-not (Test-ParamExplicit 'SetupMode') -and ($script:Action -eq 'install' -or $script:Action -eq 'setup')) {
+        $modeDescs = @{
+            'full'    = 'Alle Dev-Tools inkl. Python, Node.js (empfohlen)'
+            'minimal' = 'Basis + Git + Shell + SSH (fuer Server/CI)'
+        }
+        $script:SetupMode = Prompt-Choice -Label 'Setup-Modus:' `
+            -Options @('full', 'minimal') `
+            -Default 'full' `
+            -Descriptions $modeDescs
+    }
+
+    # 4. GitUserName (only for install/setup)
+    if (-not (Test-ParamExplicit 'GitUserName') -and ($script:Action -eq 'install' -or $script:Action -eq 'setup')) {
+        $script:GitUserName = Prompt-Text -Label 'Git Name:' `
+            -Default $script:GitUserName `
+            -AllowEmpty `
+            -Hint 'optional, z.B. Max Mustermann'
+    }
+
+    # 5. GitUserEmail (only for install/setup)
+    if (-not (Test-ParamExplicit 'GitUserEmail') -and ($script:Action -eq 'install' -or $script:Action -eq 'setup')) {
+        $script:GitUserEmail = Prompt-Text -Label 'Git E-Mail:' `
+            -Default $script:GitUserEmail `
+            -AllowEmpty `
+            -Hint 'optional, z.B. max@example.com'
+    }
+
+    # 6. SshKeyEmail (only when GitUserEmail is set, for install/setup)
+    if (-not (Test-ParamExplicit 'SshKeyEmail') -and ($script:Action -eq 'install' -or $script:Action -eq 'setup') -and $script:GitUserEmail -ne '') {
+        $sshDefault = if ($script:SshKeyEmail) { $script:SshKeyEmail } else { $script:GitUserEmail }
+        $script:SshKeyEmail = Prompt-Text -Label 'SSH-Key E-Mail:' `
+            -Default $sshDefault `
+            -AllowEmpty `
+            -Hint 'fuer SSH-Key-Generierung'
+    }
+
+    # 7. RemoveWSLFeatures (only for uninstall)
+    if (-not (Test-ParamExplicit 'RemoveWSLFeatures') -and $script:Action -eq 'uninstall') {
+        $removeFeatures = Prompt-Confirm -Label 'WSL2-Windows-Features ebenfalls deaktivieren?' -Default $false
+        if ($removeFeatures) {
+            $script:RemoveWSLFeatures = [switch]::Present
+        }
+    }
+}
+
+function Show-Summary {
+    $boxWidth = 60
+    $innerWidth = $boxWidth - 4  # for "  ║ " and " ║"
+
+    $dryPrefix = if ($DryRun) { '[DRY-RUN] ' } else { '' }
+    $actionDisplay = "$dryPrefix$($script:Action)"
+
+    function Format-Row([string]$key, [string]$value, [string]$color = '') {
+        $label = $key.PadRight(14)
+        $maxVal = $innerWidth - $label.Length - 3  # ": " and padding
+        if ($value.Length -gt $maxVal) {
+            $value = $value.Substring(0, $maxVal - 3) + '...'
+        }
+        $paddedValue = $value.PadRight($maxVal)
+        $colorStart = if ($color) { $color } else { '' }
+        $colorEnd   = if ($color) { $Script:C.Reset } else { '' }
+        return "  $($Script:C.Cyan)║$($Script:C.Reset)  $label: $colorStart$paddedValue$colorEnd  $($Script:C.Cyan)║$($Script:C.Reset)"
+    }
+
+    Write-Host ""
+    Write-Host "$($Script:C.Cyan)  ╔$('═' * ($boxWidth - 2))╗$($Script:C.Reset)"
+    Write-Host "$($Script:C.Cyan)  ║$($Script:C.Reset)$($Script:C.Bold)$((' Zusammenfassung').PadRight($boxWidth - 2))$($Script:C.Cyan)║$($Script:C.Reset)"
+    Write-Host "$($Script:C.Cyan)  ╠$('═' * ($boxWidth - 2))╣$($Script:C.Reset)"
+
+    $actionColor = if ($DryRun) { $Script:C.Yellow } else { $Script:C.Bold }
+    Write-Host (Format-Row 'Aktion' $actionDisplay $actionColor)
+
+    if ($script:Action -ne 'status') {
+        Write-Host (Format-Row 'Distribution' $script:Distribution)
+    }
+
+    if ($script:Action -eq 'install' -or $script:Action -eq 'setup') {
+        Write-Host (Format-Row 'Setup-Modus' $script:SetupMode)
+        if ($script:GitUserName) {
+            Write-Host (Format-Row 'Git Name' $script:GitUserName)
+        }
+        if ($script:GitUserEmail) {
+            Write-Host (Format-Row 'Git E-Mail' $script:GitUserEmail)
+        }
+        if ($script:SshKeyEmail) {
+            Write-Host (Format-Row 'SSH-Key E-Mail' $script:SshKeyEmail)
+        }
+    }
+
+    if ($script:Action -eq 'uninstall' -and $script:RemoveWSLFeatures) {
+        Write-Host (Format-Row 'WSL-Features' 'werden deaktiviert' $Script:C.Red)
+    }
+
+    Write-Host "$($Script:C.Cyan)  ╚$('═' * ($boxWidth - 2))╝$($Script:C.Reset)"
+    Write-Host ""
+}
 
 #endregion
 
@@ -127,6 +427,7 @@ function Register-ResumeTask {
     if ($GitUserName)  { $argList += ' -GitUserName "'  + ($GitUserName  -replace '"', '""') + '"' }
     if ($GitUserEmail) { $argList += ' -GitUserEmail "' + ($GitUserEmail -replace '"', '""') + '"' }
     if ($SshKeyEmail)  { $argList += ' -SshKeyEmail "'  + ($SshKeyEmail  -replace '"', '""') + '"' }
+    # NOTE: -Interactive intentionally omitted – scheduled task always runs non-interactive
 
     $action    = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $argList
     $trigger   = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
@@ -192,6 +493,7 @@ function Invoke-ElevatedIfNeeded {
     if ($GitUserEmail) { $argList += @("-GitUserEmail", '"' + ($GitUserEmail -replace '"', '""') + '"') }
     if ($SshKeyEmail)  { $argList += @("-SshKeyEmail",  '"' + ($SshKeyEmail  -replace '"', '""') + '"') }
     if ($RemoveWSLFeatures) { $argList += "-RemoveWSLFeatures" }
+    if ($Script:ExplicitParams.ContainsKey('Interactive')) { $argList += "-Interactive:`$$($Interactive.IsPresent)" }
 
     try {
         Start-Process powershell.exe -Verb RunAs -ArgumentList $argList
@@ -229,20 +531,25 @@ function Enable-WSLFeatures {
 
     if ($rebootNeeded -and -not $DryRun) {
         Write-Warn "Neustart erforderlich!"
-        $answer = Read-Host "  Jetzt neu starten? [J/n]"
-        if ($answer -match '^[jJyY]?$') {
-            Register-ResumeTask
-            try {
-                Restart-Computer -Force -ErrorAction Stop
-            } catch {
-                Remove-ResumeTask
-                Write-Err "Neustart fehlgeschlagen: $_"
-                Write-Warn "Resume-Task wurde entfernt. Bitte manuell neu starten und danach: .\Setup-WSL.ps1 install"
-                exit 1
+        if ($Script:IsInteractive) {
+            if (Prompt-Confirm -Label 'Jetzt neu starten?' -Default $true) {
+                Register-ResumeTask
+                try {
+                    Restart-Computer -Force -ErrorAction Stop
+                } catch {
+                    Remove-ResumeTask
+                    Write-Err "Neustart fehlgeschlagen: $_"
+                    Write-Warn "Resume-Task wurde entfernt. Bitte manuell neu starten und danach: .\Setup-WSL.ps1 install"
+                    exit 1
+                }
             }
+            Write-Warn "Kein Neustart – bitte manuell neu starten und dann: .\Setup-WSL.ps1 install"
+            exit 0
+        } else {
+            Register-ResumeTask
+            Write-Warn "Nicht-interaktiver Modus: Neustart-Task registriert. Bitte manuell neu starten."
+            exit 3
         }
-        Write-Warn "Kein Neustart – bitte manuell neu starten und dann: .\Setup-WSL.ps1 install"
-        exit 0
     }
 }
 
@@ -298,14 +605,18 @@ function Disable-WSLFeatures {
     }
 
     Write-Warn "Neustart erforderlich, um WSL-Features vollstaendig zu entfernen."
-    $answer = Read-Host "  Jetzt neu starten? [J/n]"
-    if ($answer -match '^[jJyY]?$') {
-        try {
-            Restart-Computer -Force -ErrorAction Stop
-        } catch {
-            Write-Err "Neustart fehlgeschlagen: $_"
-            Write-Warn "Bitte manuell neu starten."
+    if ($Script:IsInteractive) {
+        if (Prompt-Confirm -Label 'Jetzt neu starten?' -Default $true) {
+            try {
+                Restart-Computer -Force -ErrorAction Stop
+            } catch {
+                Write-Err "Neustart fehlgeschlagen: $_"
+                Write-Warn "Bitte manuell neu starten."
+            }
         }
+    } else {
+        Write-Warn "Nicht-interaktiver Modus: Bitte manuell neu starten."
+        exit 3
     }
 }
 
@@ -403,8 +714,7 @@ function Reset-Ubuntu {
     Write-Step "$Distribution zuruecksetzen..."
 
     if (Get-IsDistributionInstalled) {
-        $confirm = Read-Host "  $Distribution wirklich deregistrieren? Alle Daten gehen verloren! [j/N]"
-        if ($confirm -notmatch '^[jJyY]$') {
+        if (-not (Prompt-Confirm -Label "$Distribution wirklich deregistrieren? Alle Daten gehen verloren!" -Default $false -Destructive)) {
             Write-Warn "Abgebrochen."
             return
         }
@@ -496,8 +806,7 @@ function Remove-Ubuntu {
         return
     }
 
-    $confirm = Read-Host "  $Distribution wirklich deregistrieren? Alle Daten gehen verloren! [j/N]"
-    if ($confirm -notmatch '^[jJyY]$') {
+    if (-not (Prompt-Confirm -Label "$Distribution wirklich deregistrieren? Alle Daten gehen verloren!" -Default $false -Destructive)) {
         Write-Warn "Abgebrochen."
         return
     }
@@ -559,7 +868,23 @@ function Show-WSLStatus {
 
 #region ── Main ──────────────────────────────────────────────────────────────
 
+$Script:IsInteractive = Test-IsInteractiveSession
+
+if ($Script:IsInteractive) {
+    Start-InteractiveWizard
+}
+
 Show-Banner
+
+if ($Script:IsInteractive) {
+    Show-Summary
+    if (-not $DryRun -and $Action -ne 'status') {
+        if (-not (Prompt-Confirm -Label 'Ausfuehren?' -Default $true)) {
+            Write-Warn "Abgebrochen."
+            exit 2
+        }
+    }
+}
 
 switch ($Action) {
     'install' {

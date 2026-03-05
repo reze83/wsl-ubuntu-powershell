@@ -29,10 +29,11 @@ Automatisiertes WSL2-Setup mit kuratierter Entwicklungsumgebung — von null auf
 - [📋 Voraussetzungen](#-voraussetzungen)
 - [🚀 Quick Start](#-quick-start)
 - [📖 Usage](#-usage)
+- [🧙 Interaktiver Assistent](#-interaktiver-assistent)
 - [⚙️ Ubuntu Setup — Modi](#️-ubuntu-setup--modi)
 - [🔨 Nach dem Setup](#-nach-dem-setup)
 - [🏗️ Architektur](#️-architektur)
-- [🧰 Linting](#-linting)
+- [🧰 Linting & Tests](#-linting--tests)
 - [🤝 Beitragen](#-beitragen)
 - [📄 License](#-license)
 
@@ -41,6 +42,7 @@ Automatisiertes WSL2-Setup mit kuratierter Entwicklungsumgebung — von null auf
 ## ✨ Features
 
 - **Ein Einstiegspunkt** — `Setup-WSL.ps1` steuert den gesamten Lifecycle (install → setup → reset → uninstall)
+- **Interaktiver Assistent** — wird das Script ohne Parameter aufgerufen, führt ein deutschsprachiger Wizard durch alle Einstellungen
 - **Automatische UAC-Elevation** — kein manuelles "Als Administrator ausführen" nötig
 - **Auto-Resume nach Neustart** — bei Windows-Feature-Aktivierung registriert das Script einen Scheduled Task und setzt nach dem Reboot automatisch fort
 - **Vollständiger Dry-Run** — alle Schritte werden vor der Ausführung angezeigt, nichts wird verändert
@@ -64,7 +66,17 @@ Automatisiertes WSL2-Setup mit kuratierter Entwicklungsumgebung — von null auf
 
 ## 🚀 Quick Start
 
-Zwei Schritte — PowerShell **ohne** Admin starten, das Script fordert Elevation selbst an:
+PowerShell **ohne** Admin starten, das Script fordert Elevation selbst an.
+
+**Einfachster Einstieg: Interaktiver Assistent**
+
+```powershell
+.\Setup-WSL.ps1
+```
+
+Startet automatisch einen Assistenten, der durch alle Optionen führt — Aktion, Distribution, Setup-Modus, Git-Konfiguration.
+
+**Oder direkt mit Parametern:**
 
 **Schritt 1: WSL2 + Ubuntu installieren**
 
@@ -118,6 +130,16 @@ Nach dem ersten Ubuntu-Start ein UNIX-Benutzerkonto anlegen (Name + Passwort set
 | `-SshKeyEmail` | String | — | E-Mail für SSH-Key (Fallback: `-GitUserEmail`) |
 | `-DryRun` | Switch | — | Alle Schritte anzeigen ohne auszuführen |
 | `-RemoveWSLFeatures` | Switch | — | Nur bei `uninstall`: WSL2-Windows-Features ebenfalls deaktivieren |
+| `-Interactive` | Switch | auto | Interaktiven Assistenten erzwingen (`-Interactive:$false` zum Deaktivieren) |
+
+### Exit-Codes
+
+| Code | Bedeutung |
+|------|-----------|
+| `0` | Erfolgreich abgeschlossen |
+| `1` | Fehler aufgetreten |
+| `2` | Benutzer hat abgebrochen oder destruktive Operation im nicht-interaktiven Modus |
+| `3` | Neustart erforderlich (nicht-interaktiver Modus, kein Auto-Resume möglich) |
 
 ### Beispiele
 
@@ -125,6 +147,15 @@ Nach dem ersten Ubuntu-Start ein UNIX-Benutzerkonto anlegen (Name + Passwort set
 <summary>Alle Aufruf-Varianten anzeigen...</summary>
 
 ```powershell
+# Interaktiver Assistent (automatisch bei fehlendem Action-Parameter)
+.\Setup-WSL.ps1
+
+# Assistenten explizit erzwingen (nützlich in Terminals ohne automatische Erkennung)
+.\Setup-WSL.ps1 -Interactive
+
+# Assistenten deaktivieren (für CI/CD oder Scripting)
+.\Setup-WSL.ps1 install -Interactive:$false
+
 # Andere Ubuntu-Version installieren
 .\Setup-WSL.ps1 install -Distribution Ubuntu-22.04
 .\Setup-WSL.ps1 setup -Distribution Ubuntu-22.04
@@ -151,6 +182,35 @@ wsl --shutdown
 ```
 
 </details>
+
+---
+
+## 🧙 Interaktiver Assistent
+
+Wird `Setup-WSL.ps1` ohne Parameter (oder mit `-Interactive`) in einer interaktiven Terminal-Session aufgerufen, startet automatisch ein deutschsprachiger Einrichtungsassistent:
+
+```
+  Einrichtungsassistent
+  Alle Fragen mit Enter bestätigen um den Standard zu nutzen.
+
+  Aktion:
+  > [1] install – WSL2-Features aktivieren und Ubuntu installieren
+    [2] setup   – Ubuntu-Entwicklungsumgebung konfigurieren
+    [3] reset   – Ubuntu deregistrieren und neu installieren
+    ...
+
+  Auswahl (Enter = install): _
+```
+
+**Verhalten:**
+- Bereits explizit gesetzte Parameter werden übersprungen — der Assistent fragt nur nach, was fehlt
+- Nach der Eingabe zeigt eine Zusammenfassung alle gewählten Einstellungen
+- Abschließende Bestätigung vor der Ausführung (außer bei `status` und `--dry-run`)
+- Destruktive Aktionen (`reset`, `uninstall`) verlangen explizite Bestätigung; im nicht-interaktiven Modus wird direkt mit Exit-Code 2 abgebrochen
+
+**Erkennung der interaktiven Session:**
+- Automatisch wenn kein `-NonInteractive`-Flag, `UserInteractive = true`, kein aktiver Resume-Task und `Console.WindowHeight > 0`
+- Override: `-Interactive` erzwingt den Assistenten; `-Interactive:$false` deaktiviert ihn
 
 ---
 
@@ -308,17 +368,33 @@ rm -f "$tmp"
 
 ---
 
-## 🧰 Linting
+## 🧰 Linting & Tests
 
 ```powershell
 # Bash
 shellcheck ubuntu-wsl-setup.sh
 shellcheck ubuntu-wsl-validate.sh
 
-# PowerShell
+# PowerShell Linting
 Invoke-ScriptAnalyzer -Path Setup-WSL.ps1
 # PSScriptAnalyzer auf Linux: pwsh via sudo apt install powershell
+
+# Pester 5 Tests (PowerShell 5.1+, Pester 5.x erforderlich)
+# Pester installieren (einmalig):
+Install-Module -Name Pester -MinimumVersion 5.0.0 -Force -SkipPublisherCheck
+
+# Tests ausführen:
+Invoke-Pester -Path tests\Setup-WSL.Tests.ps1 -Output Detailed
 ```
+
+Die Tests in `tests/Setup-WSL.Tests.ps1` prüfen alle Wizard-Funktionen isoliert:
+- `Test-IsInteractiveSession` — Session-Erkennung und Explicit-Override
+- `Test-ParamExplicit` — Parameter-Erkennung aus `$PSBoundParameters`
+- `Prompt-Choice` — Nummerneingabe, Texteingabe, Default, Retry-Loop
+- `Prompt-Text` — Default, AllowEmpty, Retry-Loop
+- `Prompt-Confirm` — J/N-Eingabe, Default, nicht-interaktiver Modus, Destructive-Guard
+- `Show-Summary` — Box-Rendering ohne Fehler
+- `Start-InteractiveWizard` — Parameterweitergabe und Skip-Logik
 
 ---
 
