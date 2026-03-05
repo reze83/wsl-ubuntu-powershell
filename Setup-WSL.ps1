@@ -920,4 +920,11 @@ switch ($Action) {
     }
 }
 
+# Bei Doppelklick-Start (via VBS/Explorer): Fenster offen halten
+if ($Script:IsInteractive -and $Host.Name -eq 'ConsoleHost') {
+    Write-Host ""
+    Write-Host "Druecken Sie eine beliebige Taste zum Beenden..." -ForegroundColor DarkGray
+    $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
+}
+
 #endregion

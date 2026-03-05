@@ -68,7 +68,11 @@ Automatisiertes WSL2-Setup mit kuratierter Entwicklungsumgebung — von null auf
 
 PowerShell **ohne** Admin starten, das Script fordert Elevation selbst an.
 
-**Einfachster Einstieg: Interaktiver Assistent**
+**Einfachster Einstieg: Doppelklick auf `Start-Setup.vbs`**
+
+Die VBS-Datei startet `Setup-WSL.ps1` automatisch in PowerShell — kein Terminal-Öffnen nötig, ExecutionPolicy wird umgangen.
+
+**Alternativ im Terminal:**
 
 ```powershell
 .\Setup-WSL.ps1
