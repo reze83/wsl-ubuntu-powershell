@@ -49,6 +49,7 @@ Automatisiertes WSL2-Setup mit kuratierter Entwicklungsumgebung — von null auf
 - **Idempotentes Design** — das Script kann mehrfach ausgeführt werden, bereits installierte Tools werden übersprungen
 - **Sicheres Download-Pattern** — kein `curl | bash`; alle Installer werden zuerst heruntergeladen, dann ausgeführt
 - **Zwei Modi** — `--minimal` für Server/CI, `--full` für komplette Entwicklungsumgebung
+- **Optimierte `.wslconfig`** — erkennt System-Specs automatisch, setzt mirrored networking, sparseVhd und dnsTunneling; Backup bei bestehender Config
 - **Git out-of-the-box** — Delta-Pager, Windows Credential Manager, optimale WSL-Defaults
 
 ---
@@ -117,7 +118,7 @@ Nach dem ersten Ubuntu-Start ein UNIX-Benutzerkonto anlegen (Name + Passwort set
 
 | Action | Beschreibung | Rechte |
 |--------|-------------|--------|
-| `install` *(Standard)* | WSL2-Features aktivieren, Ubuntu installieren, Auto-Resume-Task einrichten | Admin |
+| `install` *(Standard)* | WSL2-Features aktivieren, `.wslconfig` optimieren, Ubuntu installieren, Auto-Resume-Task einrichten | Admin |
 | `setup` | `ubuntu-wsl-setup.sh` in WSL ausführen | Kein Admin |
 | `reset` | Ubuntu deregistrieren + sofort neu installieren | Admin |
 | `uninstall` | Ubuntu deregistrieren, Windows Terminal Profile bereinigen | Admin |
@@ -307,7 +308,7 @@ Erstellt `/etc/sudoers.d/<user>-nopasswd` mit `chmod 440`. Default: Nein.
 **5. Setup validieren:**
 
 ```bash
-./ubuntu-wsl-validate.sh           # 136 Checks (full-Modus)
+./ubuntu-wsl-validate.sh           # full-Modus (alle Checks)
 ./ubuntu-wsl-validate.sh --minimal # Nur Basis-Checks
 ```
 
@@ -323,7 +324,7 @@ cat ~/.wsl-setup.log
 
 ```mermaid
 flowchart TD
-    A["Setup-WSL.ps1 install"] --> B["WSL2-Features aktivieren\nUbuntu 24.04 installieren"]
+    A["Setup-WSL.ps1 install"] --> B["WSL2-Features aktivieren\n.wslconfig optimieren\nUbuntu 24.04 installieren"]
     B --> C{Neustart\nnötig?}
     C -->|ja| D["Scheduled Task registrieren\nWSL-Setup-Resume"]
     D -->|nach Reboot| E
