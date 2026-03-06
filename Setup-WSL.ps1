@@ -644,6 +644,70 @@ function Set-WSLDefaultVersion {
     }
 }
 
+function Set-WSLConfig {
+    Write-Step ".wslconfig optimieren..."
+
+    $wslConfigPath = Join-Path $env:USERPROFILE '.wslconfig'
+
+    # System-Specs ermitteln
+    $totalRamGB = [math]::Round((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB)
+    $totalCores = (Get-CimInstance Win32_Processor | Measure-Object -Property NumberOfLogicalProcessors -Sum).Sum
+    $allocRamGB = [math]::Max(4, [math]::Floor($totalRamGB / 2))
+    $allocCores = [math]::Max(2, $totalCores - 1)
+    $swapGB     = [math]::Max(2, [math]::Floor($totalRamGB / 4))
+
+    $configContent = @"
+# WSL2 Globale Konfiguration
+# Generiert von Setup-WSL.ps1 am $(Get-Date -Format 'yyyy-MM-dd HH:mm')
+# System: ${totalRamGB}GB RAM, ${totalCores} Cores
+
+[wsl2]
+memory=${allocRamGB}GB
+processors=$allocCores
+swap=${swapGB}GB
+nestedVirtualization=true
+debugConsole=false
+guiApplications=true
+gpuSupport=true
+
+[experimental]
+autoMemoryReclaim=gradual
+sparseVhd=true
+networkingMode=mirrored
+dnsTunneling=true
+firewall=true
+autoProxy=true
+hostAddressLoopback=true
+"@
+
+    if ($DryRun) {
+        Write-Dim "[DRY-RUN] $wslConfigPath erstellen:"
+        $configContent -split "`n" | ForEach-Object { Write-Dim "  $_" }
+        return
+    }
+
+    if (Test-Path $wslConfigPath) {
+        Write-Warn ".wslconfig existiert bereits: $wslConfigPath"
+        if ($Script:IsInteractive) {
+            if (Prompt-Confirm -Label 'Backup erstellen und ueberschreiben?' -Default $true) {
+                $backupPath = "${wslConfigPath}.bak"
+                Copy-Item -Path $wslConfigPath -Destination $backupPath -Force
+                Write-Ok "Backup: $backupPath"
+            } else {
+                Write-Warn ".wslconfig nicht geaendert"
+                return
+            }
+        } else {
+            $backupPath = "${wslConfigPath}.bak"
+            Copy-Item -Path $wslConfigPath -Destination $backupPath -Force
+            Write-Ok "Backup: $backupPath"
+        }
+    }
+
+    [System.IO.File]::WriteAllText($wslConfigPath, $configContent.Replace("`r`n", "`n"))
+    Write-Ok ".wslconfig erstellt (${allocRamGB}GB RAM, $allocCores Cores, networkingMode=mirrored)"
+}
+
 function Disable-WSLFeatures {
     # Pruefen ob noch andere Distros ausser der gerade deregistrierten vorhanden sind
     # UTF-16 LE Encoding fuer wsl.exe Output in PS 5.1 setzen
@@ -963,6 +1027,7 @@ switch ($Action) {
         Enable-WSLFeatures
         Update-WSLKernel
         Set-WSLDefaultVersion
+        Set-WSLConfig
         Install-Ubuntu
         Remove-ResumeTask
         Write-Host ""
