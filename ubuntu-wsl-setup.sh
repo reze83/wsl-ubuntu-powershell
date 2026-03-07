@@ -37,7 +37,7 @@ readonly MODE_MINIMAL="--minimal"
 readonly MODE_FULL="--full"
 readonly MODE_DEFAULT="$MODE_FULL"
 readonly LOG_FILE="$HOME/.wsl-setup.log"
-readonly NVM_VERSION="0.40.1"
+readonly NVM_VERSION="0.40.4"
 readonly NODE_VERSION="lts/*"
 readonly LOCAL_BIN_DIR="$HOME/.local/bin"
 readonly BASHRC_PATH="$HOME/.bashrc"
@@ -406,9 +406,13 @@ _install_eza() {
   command -v eza &>/dev/null && { print_success "eza bereits vorhanden"; return; }
   local tmp; tmp=$(mktemp -d)
   local arch; arch=$(uname -m)
+  case "$arch" in
+    x86_64|aarch64) ;;
+    *) print_warning "eza: Nicht unterstuetzte Architektur: $arch – uebersprungen"; return ;;
+  esac
   local url="https://github.com/eza-community/eza/releases/latest/download/eza_${arch}-unknown-linux-gnu.tar.gz"
-  if curl -fsSL --connect-timeout 30 --max-time 300 "$url" -o "$tmp/eza.tar.gz" 2>/dev/null; then
-    if tar xzf "$tmp/eza.tar.gz" -C "$tmp" 2>/dev/null \
+  if curl -fsSL --connect-timeout 30 --max-time 300 "$url" -o "$tmp/eza.tar.gz" 2>> "$LOG_FILE"; then
+    if tar xzf "$tmp/eza.tar.gz" -C "$tmp" 2>> "$LOG_FILE" \
         && install -m 755 "$tmp/eza" "$LOCAL_BIN_DIR/eza"; then
       print_success "eza installiert"
       # ls-Aliases auf eza umstellen
@@ -432,8 +436,8 @@ _install_zoxide() {
   local tmp; tmp=$(mktemp)
   if curl -fsSL --connect-timeout 30 --max-time 120 \
       https://raw.githubusercontent.com/ajeetdsouza/zoxide/main/install.sh \
-      -o "$tmp" 2>/dev/null \
-      && bash "$tmp" 2>/dev/null; then
+      -o "$tmp" 2>> "$LOG_FILE" \
+      && bash "$tmp" 2>> "$LOG_FILE"; then
     # shellcheck disable=SC2016
     append_if_missing "$BASHRC_PATH" "# wsl-setup:zoxide" \
 '# wsl-setup:zoxide
@@ -469,11 +473,15 @@ _install_pwsh() {
   command -v pwsh &>/dev/null && { print_success "pwsh bereits vorhanden"; return; }
   local ubuntu_version
   ubuntu_version=$(lsb_release -rs 2>/dev/null)
+  if [[ -z "$ubuntu_version" ]]; then
+    print_warning "pwsh: Ubuntu-Version nicht ermittelbar – uebersprungen"
+    return
+  fi
   local tmp_deb
   tmp_deb=$(mktemp --suffix=.deb)
   local deb_url="https://packages.microsoft.com/config/ubuntu/${ubuntu_version}/packages-microsoft-prod.deb"
-  if curl -fsSL --connect-timeout 30 --max-time 120 "$deb_url" -o "$tmp_deb" 2>/dev/null \
-    && sudo dpkg -i "$tmp_deb" 2>/dev/null \
+  if curl -fsSL --connect-timeout 30 --max-time 120 "$deb_url" -o "$tmp_deb" 2>> "$LOG_FILE" \
+    && sudo dpkg -i "$tmp_deb" 2>> "$LOG_FILE" \
     && sudo apt-get update -qq \
     && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq powershell; then
     print_success "pwsh $(pwsh --version 2>/dev/null | cut -d' ' -f2) installiert"
@@ -488,7 +496,7 @@ _install_yq() {
   local arch; arch=$(dpkg --print-architecture)
   local url="https://github.com/mikefarah/yq/releases/latest/download/yq_linux_${arch}"
   local tmp; tmp=$(mktemp)
-  if curl -fsSL --connect-timeout 30 --max-time 300 "$url" -o "$tmp" 2>/dev/null; then
+  if curl -fsSL --connect-timeout 30 --max-time 300 "$url" -o "$tmp" 2>> "$LOG_FILE"; then
     install -m 755 "$tmp" "$LOCAL_BIN_DIR/yq"
     print_success "yq $("$LOCAL_BIN_DIR/yq" --version 2>/dev/null | awk '{print $NF}') installiert"
   else
@@ -501,7 +509,7 @@ _install_lazygit() {
   command -v lazygit &>/dev/null && { print_success "lazygit bereits vorhanden"; return; }
   local version
   version=$(curl -fsSL --connect-timeout 30 --max-time 60 \
-    "https://api.github.com/repos/jesseduffield/lazygit/releases/latest" 2>/dev/null \
+    "https://api.github.com/repos/jesseduffield/lazygit/releases/latest" 2>> "$LOG_FILE" \
     | grep '"tag_name"' | cut -d'"' -f4 | sed 's/^v//' || true)
   if [[ -z "$version" ]]; then
     print_warning "lazygit: Version nicht ermittelbar – uebersprungen"
@@ -512,10 +520,13 @@ _install_lazygit() {
   # lazygit nutzt "arm64" statt "aarch64" fuer ARM-Releases
   [[ "$arch" == "aarch64" ]] && arch="arm64"
   local url="https://github.com/jesseduffield/lazygit/releases/download/v${version}/lazygit_${version}_Linux_${arch}.tar.gz"
-  if curl -fsSL --connect-timeout 30 --max-time 300 "$url" -o "$tmp/lazygit.tar.gz" 2>/dev/null; then
-    tar xzf "$tmp/lazygit.tar.gz" -C "$tmp" lazygit 2>/dev/null
-    install -m 755 "$tmp/lazygit" "$LOCAL_BIN_DIR/lazygit"
-    print_success "lazygit ${version} installiert"
+  if curl -fsSL --connect-timeout 30 --max-time 300 "$url" -o "$tmp/lazygit.tar.gz" 2>> "$LOG_FILE"; then
+    if tar xzf "$tmp/lazygit.tar.gz" -C "$tmp" lazygit 2>> "$LOG_FILE" \
+        && install -m 755 "$tmp/lazygit" "$LOCAL_BIN_DIR/lazygit"; then
+      print_success "lazygit ${version} installiert"
+    else
+      print_warning "lazygit: Entpacken fehlgeschlagen – uebersprungen"
+    fi
   else
     print_warning "lazygit: Download fehlgeschlagen – uebersprungen"
   fi
@@ -528,7 +539,7 @@ _install_lazygit() {
 install_browser_integration() {
   print_step "Browser-Integration installieren (xdg-utils, wslu)..."
   if [[ "$DRY_RUN" == true ]]; then print_dim "[DRY-RUN] apt install xdg-utils wslu"; return; fi
-  if sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq xdg-utils wslu 2>/dev/null; then
+  if sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq xdg-utils wslu 2>> "$LOG_FILE"; then
     print_success "Browser-Integration bereit (wslview)"
   else
     print_warning "wslu nicht verfuegbar – uebersprungen"
@@ -554,9 +565,11 @@ install_dev_dependencies() {
     print_dim "[DRY-RUN] apt install: ${packages[*]}"
     return
   fi
-  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${packages[@]}" 2>/dev/null \
-    || print_warning "Einige Dev-Pakete konnten nicht installiert werden"
-  print_success "Dev-Dependencies installiert"
+  if sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${packages[@]}" 2>> "$LOG_FILE"; then
+    print_success "Dev-Dependencies installiert"
+  else
+    print_warning "Einige Dev-Pakete konnten nicht installiert werden – Details: $LOG_FILE"
+  fi
 }
 
 #-------------------------------------------------------------------------------
@@ -567,13 +580,13 @@ setup_python() {
   if [[ "$DRY_RUN" == true ]]; then print_dim "[DRY-RUN] python3, pip, venv + uv (astral.sh)"; return; fi
 
   sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
-    python3 python3-pip python3-venv python3-dev 2>/dev/null
+    python3 python3-pip python3-venv python3-dev 2>> "$LOG_FILE"
 
   if ! command -v uv &>/dev/null; then
     local uv_tmp; uv_tmp=$(mktemp)
     if curl -fsSL --connect-timeout 30 --max-time 120 https://astral.sh/uv/install.sh \
-        -o "$uv_tmp" 2>/dev/null \
-        && bash "$uv_tmp" 2>/dev/null; then
+        -o "$uv_tmp" 2>> "$LOG_FILE" \
+        && bash "$uv_tmp" 2>> "$LOG_FILE"; then
       print_success "uv installiert"
     else
       print_warning "uv: Installation fehlgeschlagen – uebersprungen"
@@ -590,7 +603,9 @@ EOF
 
   local py_version
   py_version=$(python3 --version 2>/dev/null | cut -d' ' -f2)
-  print_success "Python $py_version + uv"
+  local uv_info=""
+  command -v uv &>/dev/null && uv_info=" + uv"
+  print_success "Python $py_version$uv_info"
 }
 
 #-------------------------------------------------------------------------------
@@ -609,8 +624,8 @@ setup_nodejs() {
     local nvm_tmp; nvm_tmp=$(mktemp)
     if curl -fsSL --connect-timeout 30 --max-time 120 \
         "https://raw.githubusercontent.com/nvm-sh/nvm/v${NVM_VERSION}/install.sh" \
-        -o "$nvm_tmp" 2>/dev/null \
-        && bash "$nvm_tmp" 2>/dev/null; then
+        -o "$nvm_tmp" 2>> "$LOG_FILE" \
+        && bash "$nvm_tmp" 2>> "$LOG_FILE"; then
       print_success "nvm ${NVM_VERSION} installiert"
     else
       rm -f "$nvm_tmp"
@@ -624,12 +639,15 @@ setup_nodejs() {
   # shellcheck source=/dev/null
   [[ -s "$NVM_DIR/nvm.sh" ]] && source "$NVM_DIR/nvm.sh"
 
-  nvm install "$NODE_VERSION" 2>/dev/null
-  nvm use "$NODE_VERSION"     2>/dev/null
-  nvm alias default "$NODE_VERSION" 2>/dev/null
+  if ! nvm install "$NODE_VERSION" 2>> "$LOG_FILE"; then
+    print_warning "nvm install fehlgeschlagen – uebersprungen"
+    return
+  fi
+  nvm use "$NODE_VERSION"     2>> "$LOG_FILE"
+  nvm alias default "$NODE_VERSION" 2>> "$LOG_FILE"
 
   if ! command -v pnpm &>/dev/null; then
-    if npm install -g pnpm 2>/dev/null; then
+    if npm install -g pnpm 2>> "$LOG_FILE"; then
       print_success "pnpm installiert"
     else
       print_warning "pnpm: Installation fehlgeschlagen"
@@ -637,8 +655,12 @@ setup_nodejs() {
   fi
 
   local node_ver
-  node_ver=$(node --version 2>/dev/null || echo "unbekannt")
-  print_success "Node.js $node_ver + pnpm"
+  node_ver=$(node --version 2>/dev/null || true)
+  if [[ -n "$node_ver" ]]; then
+    print_success "Node.js $node_ver + pnpm"
+  else
+    print_warning "Node.js: Version nicht ermittelbar"
+  fi
 }
 
 #-------------------------------------------------------------------------------
@@ -727,7 +749,7 @@ setup_zsh() {
     omz_tmp=$(mktemp)
     if curl -fsSL --connect-timeout 30 --max-time 120 \
         https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh \
-        -o "$omz_tmp" 2>/dev/null; then
+        -o "$omz_tmp" 2>> "$LOG_FILE"; then
       RUNZSH=no CHSH=no bash "$omz_tmp" \
         || print_warning "Oh-My-Zsh: Installation fehlgeschlagen"
     else
@@ -741,13 +763,13 @@ setup_zsh() {
   if [[ ! -d "$zsh_custom/plugins/zsh-autosuggestions" ]]; then
     GIT_TERMINAL_PROMPT=0 git clone --depth=1 \
       https://github.com/zsh-users/zsh-autosuggestions \
-      "$zsh_custom/plugins/zsh-autosuggestions" 2>/dev/null \
+      "$zsh_custom/plugins/zsh-autosuggestions" 2>> "$LOG_FILE" \
       || print_warning "zsh-autosuggestions: Klonen fehlgeschlagen"
   fi
   if [[ ! -d "$zsh_custom/plugins/zsh-syntax-highlighting" ]]; then
     GIT_TERMINAL_PROMPT=0 git clone --depth=1 \
       https://github.com/zsh-users/zsh-syntax-highlighting \
-      "$zsh_custom/plugins/zsh-syntax-highlighting" 2>/dev/null \
+      "$zsh_custom/plugins/zsh-syntax-highlighting" 2>> "$LOG_FILE" \
       || print_warning "zsh-syntax-highlighting: Klonen fehlgeschlagen"
   fi
 
@@ -756,7 +778,7 @@ setup_zsh() {
   if [[ -f "$zshrc" ]]; then
     # Plugins aktivieren (idempotent via Grep-Check)
     if ! grep -qF "zsh-autosuggestions" "$zshrc"; then
-      sed -i '0,/^plugins=(.*)/{s/^plugins=(.*)/plugins=(git zsh-autosuggestions zsh-syntax-highlighting)/}' "$zshrc"
+      sed -i -E '0,/^plugins=\(.*\)/{s/^plugins=\(.*\)/plugins=(git zsh-autosuggestions zsh-syntax-highlighting)/}' "$zshrc"
     fi
     # ~/.local/bin in PATH
     # shellcheck disable=SC2016
@@ -789,8 +811,14 @@ export NVM_DIR="$HOME/.nvm"
 #-------------------------------------------------------------------------------
 # Error Handler
 #-------------------------------------------------------------------------------
+SUDO_KEEPALIVE_PID=""
+
 cleanup() {
   local exit_code=$?
+  # Kill sudo keepalive if running
+  if [[ -n "$SUDO_KEEPALIVE_PID" ]]; then
+    kill "$SUDO_KEEPALIVE_PID" 2>/dev/null || true
+  fi
   if [[ $exit_code -ne 0 ]]; then
     print_error "Setup fehlgeschlagen (Exit: $exit_code)"
     print_dim "Log: $LOG_FILE"
@@ -1051,8 +1079,22 @@ offer_passwordless_sudo() {
   read -r -p "  Passwordless sudo einrichten? [j/N]: " reply
   [[ "${reply,,}" != "j" && "${reply,,}" != "y" ]] && return 0
 
+  # Validate username before writing sudoers rule
+  if [[ ! "$USER" =~ ^[a-z_][a-z0-9_.-]*$ ]]; then
+    print_error "Ungueltiger Benutzername fuer sudoers: $USER"
+    return 1
+  fi
+
   echo "${USER} ALL=(ALL) NOPASSWD: ALL" | sudo tee "$sudoers_file" > /dev/null
   sudo chmod 440 "$sudoers_file"
+
+  # Validate sudoers syntax – rollback on failure
+  if ! sudo visudo -c -f "$sudoers_file" > /dev/null 2>&1; then
+    print_error "Sudoers-Syntax ungueltig – Rollback"
+    sudo rm -f "$sudoers_file"
+    return 1
+  fi
+
   print_success "Passwordless sudo eingerichtet: $sudoers_file"
 }
 
@@ -1075,7 +1117,9 @@ main() {
   fi
 
   # sudo-Keepalive: verhindert Credential-Verfall (Standard: 15 Min) bei langem Setup
-  ( while true; do sleep 59; sudo -v 2>/dev/null || break; done ) & disown
+  # Terminates automatically when parent process dies (kill -0 check)
+  ( while kill -0 $$ 2>/dev/null; do sleep 59; sudo -v 2>/dev/null || break; done ) &
+  SUDO_KEEPALIVE_PID=$!
 
   # Basis (beide Modi)
   system_update

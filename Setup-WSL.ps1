@@ -224,13 +224,13 @@ function Prompt-Choice {
         $num = $i + 1
         $opt = $Options[$i]
         $isDefault = ($opt -eq $Default)
-        $marker = if ($isDefault) { "$($Script:C.Green)>" } else { " " }
+        $marker = $(if ($isDefault) { "$($Script:C.Green)>" } else { " " })
         $numStr = "[$num]"
-        $desc = if ($Descriptions.ContainsKey($opt)) { " - $($Descriptions[$opt])" } else { "" }
+        $desc = $(if ($Descriptions.ContainsKey($opt)) { " - $($Descriptions[$opt])" } else { "" })
         Write-Host "  $marker $numStr $opt$desc$($Script:C.Reset)"
     }
 
-    $defaultHint = if ($Default) { " (Enter = $Default)" } else { "" }
+    $defaultHint = $(if ($Default) { " (Enter = $Default)" } else { "" })
     Write-Host ""
 
     $selected = $null
@@ -316,12 +316,12 @@ function Prompt-Confirm {
         return $Default
     }
 
-    $hint = if ($Default) { '[J/n]' } else { '[j/N]' }
-    $labelDisplay = if ($Destructive) {
+    $hint = $(if ($Default) { '[J/n]' } else { '[j/N]' })
+    $labelDisplay = $(if ($Destructive) {
         "$($Script:C.Red)$Label$($Script:C.Reset)"
     } else {
         $Label
-    }
+    })
 
     while ($true) {
         Write-Host ""
@@ -396,7 +396,7 @@ function Start-InteractiveWizard {
 
     # 6. SshKeyEmail (only when GitUserEmail is set, for install/setup)
     if (-not (Test-ParamExplicit 'SshKeyEmail') -and ($script:Action -eq 'install' -or $script:Action -eq 'setup') -and $script:GitUserEmail -ne '') {
-        $sshDefault = if ($script:SshKeyEmail) { $script:SshKeyEmail } else { $script:GitUserEmail }
+        $sshDefault = $(if ($script:SshKeyEmail) { $script:SshKeyEmail } else { $script:GitUserEmail })
         $script:SshKeyEmail = Prompt-Text -Label 'SSH-Key E-Mail:' `
             -Default $sshDefault `
             -AllowEmpty `
@@ -416,7 +416,7 @@ function Show-Summary {
     $boxWidth = 60
     $innerWidth = $boxWidth - 4  # for "  ║ " and " ║"
 
-    $dryPrefix = if ($DryRun) { '[DRY-RUN] ' } else { '' }
+    $dryPrefix = $(if ($DryRun) { '[DRY-RUN] ' } else { '' })
     $actionDisplay = "$dryPrefix$($script:Action)"
 
     function Format-Row([string]$key, [string]$value, [string]$color = '') {
@@ -426,8 +426,8 @@ function Show-Summary {
             $value = $value.Substring(0, $maxVal - 3) + '...'
         }
         $paddedValue = $value.PadRight($maxVal)
-        $colorStart = if ($color) { $color } else { '' }
-        $colorEnd   = if ($color) { $Script:C.Reset } else { '' }
+        $colorStart = $(if ($color) { $color } else { '' })
+        $colorEnd   = $(if ($color) { $Script:C.Reset } else { '' })
         return "  $($Script:C.Cyan)║$($Script:C.Reset)  ${label}: $colorStart$paddedValue$colorEnd  $($Script:C.Cyan)║$($Script:C.Reset)"
     }
 
@@ -436,7 +436,7 @@ function Show-Summary {
     Write-Host "$($Script:C.Cyan)  ║$($Script:C.Reset)$($Script:C.Bold)$((' Zusammenfassung').PadRight($boxWidth - 2))$($Script:C.Cyan)║$($Script:C.Reset)"
     Write-Host "$($Script:C.Cyan)  ╠$('═' * ($boxWidth - 2))╣$($Script:C.Reset)"
 
-    $actionColor = if ($DryRun) { $Script:C.Yellow } else { $Script:C.Bold }
+    $actionColor = $(if ($DryRun) { $Script:C.Yellow } else { $Script:C.Bold })
     Write-Host (Format-Row 'Aktion' $actionDisplay $actionColor)
 
     if ($script:Action -ne 'status') {
@@ -492,17 +492,16 @@ function Register-ResumeTask {
     if ($DryRun) { Write-Dim "[DRY-RUN] Register-ResumeTask"; return }
     $argList = "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`" install" +
                " -Distribution $Distribution -SetupMode $SetupMode"
-    if ($GitUserName)  { $argList += ' -GitUserName "'  + ($GitUserName  -replace '"', '""') + '"' }
-    if ($GitUserEmail) { $argList += ' -GitUserEmail "' + ($GitUserEmail -replace '"', '""') + '"' }
-    if ($SshKeyEmail)  { $argList += ' -SshKeyEmail "'  + ($SshKeyEmail  -replace '"', '""') + '"' }
+    if ($GitUserName)  { $argList += " -GitUserName '"  + ($GitUserName  -replace "'", "''") + "'" }
+    if ($GitUserEmail) { $argList += " -GitUserEmail '" + ($GitUserEmail -replace "'", "''") + "'" }
+    if ($SshKeyEmail)  { $argList += " -SshKeyEmail '"  + ($SshKeyEmail  -replace "'", "''") + "'" }
     # NOTE: -Interactive intentionally omitted – scheduled task always runs non-interactive
 
-    $action    = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $argList
-    $trigger   = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
-    $settings  = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 30)
-    $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -RunLevel Highest
-
     try {
+        $action    = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $argList
+        $trigger   = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
+        $settings  = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 30) -ErrorAction Stop
+        $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -RunLevel Highest
         Register-ScheduledTask -TaskName $Script:TaskName `
             -Action $action -Trigger $trigger `
             -Settings $settings -Principal $principal `
@@ -557,9 +556,9 @@ function Invoke-ElevatedIfNeeded {
 
     $argList = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "`"$PSCommandPath`"", $Action)
     $argList += @("-Distribution", $Distribution, "-SetupMode", $SetupMode)
-    if ($GitUserName)  { $argList += @("-GitUserName",  '"' + ($GitUserName  -replace '"', '""') + '"') }
-    if ($GitUserEmail) { $argList += @("-GitUserEmail", '"' + ($GitUserEmail -replace '"', '""') + '"') }
-    if ($SshKeyEmail)  { $argList += @("-SshKeyEmail",  '"' + ($SshKeyEmail  -replace '"', '""') + '"') }
+    if ($GitUserName)  { $argList += @("-GitUserName",  "'" + ($GitUserName  -replace "'", "''") + "'") }
+    if ($GitUserEmail) { $argList += @("-GitUserEmail", "'" + ($GitUserEmail -replace "'", "''") + "'") }
+    if ($SshKeyEmail)  { $argList += @("-SshKeyEmail",  "'" + ($SshKeyEmail  -replace "'", "''") + "'") }
     if ($RemoveWSLFeatures) { $argList += "-RemoveWSLFeatures" }
     if ($Script:ExplicitParams.ContainsKey('Interactive')) { $argList += "-Interactive:`$$($Interactive.IsPresent)" }
     if ($KeepWindowOpenInternal -or $Script:ExplorerLaunch) { $argList += "-KeepWindowOpenInternal" }
@@ -593,8 +592,13 @@ function Enable-WSLFeatures {
             Write-Dim "[DRY-RUN] Enable-WindowsOptionalFeature -FeatureName $feature"
             continue
         }
-        $result = Enable-WindowsOptionalFeature -Online -FeatureName $feature -NoRestart
-        Write-Ok "$feature aktiviert"
+        try {
+            $result = Enable-WindowsOptionalFeature -Online -FeatureName $feature -NoRestart -ErrorAction Stop
+            Write-Ok "$feature aktiviert"
+        } catch {
+            Write-Err "Feature $feature konnte nicht aktiviert werden: $_"
+            Exit-Script 1
+        }
         if ($result.RestartNeeded) { $rebootNeeded = $true }
     }
 
@@ -625,22 +629,22 @@ function Enable-WSLFeatures {
 function Update-WSLKernel {
     Write-Step "WSL-Kernel auf aktuellen Stand bringen..."
     if ($DryRun) { Write-Dim "[DRY-RUN] wsl --update"; return }
-    wsl --update 2>&1 | Out-Null
+    $updateOutput = wsl --update 2>&1
     if ($LASTEXITCODE -eq 0) {
         Write-Ok "WSL-Kernel aktuell"
     } else {
-        Write-Warn "WSL-Kernel-Update nicht moeglich (kein Internet oder nicht verfuegbar)"
+        Write-Warn "WSL-Kernel-Update nicht moeglich: $($updateOutput -join ' ')"
     }
 }
 
 function Set-WSLDefaultVersion {
     Write-Step "WSL2 als Standard-Version setzen..."
     if ($DryRun) { Write-Dim "[DRY-RUN] wsl --set-default-version 2"; return }
-    wsl --set-default-version 2 2>&1 | Out-Null
+    $output = wsl --set-default-version 2 2>&1
     if ($LASTEXITCODE -eq 0) {
         Write-Ok "WSL2 als Standard gesetzt"
     } else {
-        Write-Warn "WSL2 als Standard-Version konnte nicht gesetzt werden"
+        Write-Warn "WSL2 als Standard-Version konnte nicht gesetzt werden: $($output -join ' ')"
     }
 }
 
@@ -688,9 +692,10 @@ hostAddressLoopback=true
 
     if (Test-Path $wslConfigPath) {
         Write-Warn ".wslconfig existiert bereits: $wslConfigPath"
+        $ts = Get-Date -Format 'yyyyMMdd-HHmmss'
         if ($Script:IsInteractive) {
             if (Prompt-Confirm -Label 'Backup erstellen und ueberschreiben?' -Default $true) {
-                $backupPath = "${wslConfigPath}.bak"
+                $backupPath = "${wslConfigPath}.${ts}.bak"
                 Copy-Item -Path $wslConfigPath -Destination $backupPath -Force
                 Write-Ok "Backup: $backupPath"
             } else {
@@ -698,7 +703,7 @@ hostAddressLoopback=true
                 return
             }
         } else {
-            $backupPath = "${wslConfigPath}.bak"
+            $backupPath = "${wslConfigPath}.${ts}.bak"
             Copy-Item -Path $wslConfigPath -Destination $backupPath -Force
             Write-Ok "Backup: $backupPath"
         }
@@ -763,7 +768,7 @@ function Get-IsDistributionInstalled {
     [Console]::OutputEncoding = [System.Text.Encoding]::Unicode
     $list = wsl --list --quiet 2>&1
     [Console]::OutputEncoding = $prevEncoding
-    return @($list | Where-Object { $_.Trim() -eq $Distribution }).Count -gt 0
+    return @($list | Where-Object { ($_ -replace '\0', '').Trim() -eq $Distribution }).Count -gt 0
 }
 
 function Install-Ubuntu {
@@ -914,7 +919,8 @@ function Remove-TerminalProfile {
             $ts = (Get-Date -Format 'yyyyMMdd-HHmmss')
             $bakPath = "$settingsPath.$ts.bak"
             Copy-Item $settingsPath $bakPath -Force
-            $json | ConvertTo-Json -Depth 20 | Set-Content $settingsPath -Encoding UTF8
+            $jsonStr = $json | ConvertTo-Json -Depth 20
+            [System.IO.File]::WriteAllText($settingsPath, $jsonStr, [System.Text.UTF8Encoding]::new($false))
             Write-Ok "$($before.Count - $after.Count) Profil(e) entfernt – Backup: $(Split-Path $bakPath -Leaf)"
         }
         catch {

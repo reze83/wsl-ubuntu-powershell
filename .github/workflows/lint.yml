@@ -7,6 +7,7 @@ on:
       - '*.ps1'
       - '*.psm1'
       - '*.psd1'
+      - 'tests/**'
       - '.gitattributes'
       - '.github/workflows/*.yml'
   pull_request:
@@ -15,6 +16,7 @@ on:
       - '*.ps1'
       - '*.psm1'
       - '*.psd1'
+      - 'tests/**'
       - '.gitattributes'
       - '.github/workflows/*.yml'
 
@@ -23,7 +25,7 @@ jobs:
     name: ShellCheck
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Run ShellCheck
         run: shellcheck ubuntu-wsl-setup.sh ubuntu-wsl-validate.sh
@@ -32,7 +34,7 @@ jobs:
     name: PowerShell Encoding
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Verify UTF-8 BOM for PowerShell files
         run: |
@@ -55,3 +57,19 @@ jobs:
           done <<< "$files"
 
           exit "$failed"
+
+  pester:
+    name: Pester Tests
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Install Pester
+        shell: pwsh
+        run: Install-Module -Name Pester -RequiredVersion 5.7.1 -Force -SkipPublisherCheck
+
+      - name: Run Pester tests
+        shell: pwsh
+        run: |
+          $result = Invoke-Pester -Path tests/ -PassThru -Output Detailed
+          if ($result.FailedCount -gt 0) { exit 1 }

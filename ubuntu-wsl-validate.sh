@@ -78,9 +78,9 @@ check_cmd() {
     local cmd="$1"
     local label="${2:-$cmd}"
     if command -v "$cmd" &>/dev/null; then
-        local ver
-        ver=$(command -v "$cmd")
-        pass "Befehl verfuegbar: $label ($ver)"
+        local loc
+        loc=$(command -v "$cmd")
+        pass "Befehl verfuegbar: $label ($loc)"
     else
         fail "Befehl nicht gefunden: $label" "Erwarte: $cmd im PATH"
     fi
@@ -362,7 +362,7 @@ check_shell() {
     check_file_contains "${HOME}/.bashrc" 'shopt -s histappend' \
         "histappend aktiviert"
 
-    if echo "${PATH}" | grep -q "${HOME}/.local/bin"; then
+    if echo "${PATH}" | grep -qF "${HOME}/.local/bin"; then
         pass "${HOME}/.local/bin ist im PATH"
     else
         warn "${HOME}/.local/bin nicht im PATH" ".bashrc neu laden: source ${HOME}/.bashrc"
@@ -492,7 +492,7 @@ check_cli_tools_binaries() {
             "zoxide-Init in .bashrc gesetzt"
     else
         fail "zoxide nicht gefunden" \
-            "Installation: curl -fsSL https://raw.githubusercontent.com/ajeetdsouza/zoxide/main/install.sh | bash"
+            "Installation: tmp=\$(mktemp) && curl -fsSL https://raw.githubusercontent.com/ajeetdsouza/zoxide/main/install.sh -o \$tmp && bash \$tmp && rm -f \$tmp"
     fi
 
     # gh (GitHub CLI)
@@ -598,7 +598,7 @@ check_python() {
     if command -v uv &>/dev/null; then
         pass "uv verfuegbar: $(command -v uv)"
     else
-        fail "uv nicht gefunden" "curl -fsSL https://astral.sh/uv/install.sh | bash"
+        fail "uv nicht gefunden" "Installation: tmp=\$(mktemp) && curl -fsSL https://astral.sh/uv/install.sh -o \$tmp && bash \$tmp && rm -f \$tmp"
     fi
 
     check_file "${HOME}/.config/pip/pip.conf" "${HOME}/.config/pip/pip.conf"

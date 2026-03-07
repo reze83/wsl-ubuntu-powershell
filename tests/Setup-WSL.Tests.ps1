@@ -91,7 +91,7 @@ Describe 'Test-IsInteractiveSession' {
             $Script:ExplicitParams = @{}
         }
 
-        It 'returns false when CommandLineArgs contain -NonInteractive' {
+        It 'returns false when CommandLineArgs contain -NonInteractive' -Skip:(-not $IsWindows -and -not ($PSVersionTable.PSVersion.Major -le 5)) {
             Mock -CommandName 'Get-ScheduledTask' -MockWith { $null }
 
             # We cannot easily mock [Environment]::GetCommandLineArgs() in PS 5.1,
@@ -104,7 +104,7 @@ Describe 'Test-IsInteractiveSession' {
             $result | Should -BeOfType [bool]
         }
 
-        It 'returns false when a resume task exists' {
+        It 'returns false when a resume task exists' -Skip:(-not $IsWindows -and -not ($PSVersionTable.PSVersion.Major -le 5)) {
             Mock -CommandName 'Get-ScheduledTask' -MockWith {
                 [PSCustomObject]@{ TaskName = 'WSL-Setup-Resume' }
             }
@@ -326,28 +326,28 @@ Describe 'Prompt-Confirm' {
         BeforeEach {
             $Script:IsInteractive = $false
             Mock -CommandName 'Write-Host' -MockWith {}
+            Mock -CommandName 'Read-Host' -MockWith { throw 'Read-Host should not be called' }
         }
 
         It 'returns Default without prompting when not Destructive' {
             $result = Prompt-Confirm -Label 'Fortfahren?' -Default $true
             $result | Should -Be $true
-            Assert-MockCalled 'Read-Host' -Times 0 -Scope It
+            Should -Invoke 'Read-Host' -Times 0 -Scope It
         }
 
         It 'returns false Default without prompting when not Destructive' {
             $result = Prompt-Confirm -Label 'Fortfahren?' -Default $false
             $result | Should -Be $false
-            Assert-MockCalled 'Read-Host' -Times 0 -Scope It
+            Should -Invoke 'Read-Host' -Times 0 -Scope It
         }
 
-        It 'calls Write-Err before exit 2 when Destructive and non-interactive' {
+        It 'calls Write-Err before exit when Destructive and non-interactive' {
             Mock -CommandName 'Write-Err' -MockWith {}
+            # Mock exit to prevent it from killing the test runner
+            Mock -CommandName 'Exit-Script' -MockWith { throw 'ExitCalled' } -ErrorAction SilentlyContinue
 
-            try {
-                Prompt-Confirm -Label 'Loeschen?' -Default $false -Destructive
-            } catch {
-                # exit throws in test context
-            }
+            # Prompt-Confirm calls exit (not Exit-Script) – catch the ScriptHaltException
+            { Prompt-Confirm -Label 'Loeschen?' -Default $false -Destructive } | Should -Throw
 
             Should -Invoke 'Write-Err' -Times 1 -Scope It
         }
@@ -449,7 +449,7 @@ Describe 'Start-InteractiveWizard' {
         Start-InteractiveWizard
 
         $script:Action | Should -Be 'status'
-        Assert-MockCalled 'Read-Host' -Times 0 -Scope It
+        Should -Invoke 'Read-Host' -Times 0 -Scope It
     }
 
     It 'skips Distribution prompt for status action' {
@@ -459,7 +459,7 @@ Describe 'Start-InteractiveWizard' {
 
         Start-InteractiveWizard
 
-        Assert-MockCalled 'Read-Host' -Times 0 -Scope It
+        Should -Invoke 'Read-Host' -Times 0 -Scope It
     }
 
     It 'sets SshKeyEmail to GitUserEmail default when email provided' {

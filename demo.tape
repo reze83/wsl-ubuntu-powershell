@@ -19,7 +19,7 @@ Type "# Schritt 1: Dry-Run — zeigt alle Aktionen ohne Ausführung"
 Enter
 Sleep 800ms
 
-Type "DRY_RUN=true bash ubuntu-wsl-setup.sh --full 2>&1 | head -50"
+Type "bash ubuntu-wsl-setup.sh --full --dry-run 2>&1 | head -50"
 Enter
 Sleep 6s
 
