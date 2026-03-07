@@ -376,7 +376,9 @@ install_cli_tools() {
   fi
 
   local -a apt_tools=(ripgrep fd-find bat fzf tmux ncdu direnv git-delta)
-  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${apt_tools[@]}"
+  if ! sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${apt_tools[@]}" 2>> "$LOG_FILE"; then
+    print_warning "Einige CLI-Pakete nicht installiert – Details: $LOG_FILE"
+  fi
 
   # delta als git-Pager konfigurieren
   if command -v delta &>/dev/null; then
