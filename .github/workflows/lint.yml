@@ -95,7 +95,8 @@ jobs:
         shell: pwsh
         run: |
           Install-Module -Name PSScriptAnalyzer -Force -SkipPublisherCheck
-          $results = Invoke-ScriptAnalyzer -Path . -Include '*.ps1','*.psm1','*.psd1' -Severity Error,Warning -Recurse
+          $files = Get-ChildItem -Path . -Recurse -File -Include '*.ps1','*.psm1','*.psd1'
+          $results = $files | ForEach-Object { Invoke-ScriptAnalyzer -Path $_.FullName -Severity Error,Warning } | Where-Object { $_ }
           $results | Format-Table -AutoSize
           if ($results.Count -gt 0) {
             $summary = "## PSScriptAnalyzer`n`n"
