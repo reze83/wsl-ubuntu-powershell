@@ -181,7 +181,7 @@ function Exit-Script {
         try {
             $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
         } catch {
-            # Fallback: Exit trotzdem sicher durchfuehren
+            Write-Verbose "ReadKey nicht verfuegbar: $_"
         }
     }
 
