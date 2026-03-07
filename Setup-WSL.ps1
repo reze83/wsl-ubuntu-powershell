@@ -1000,6 +1000,9 @@ function Remove-Ubuntu {
 #region ── Status ────────────────────────────────────────────────────────────
 
 function Show-WSLStatus {
+    $prevEnc = [Console]::OutputEncoding
+    try {
+    [Console]::OutputEncoding = [System.Text.Encoding]::Unicode
     Write-Host ""
     Write-Host "$($Script:C.Cyan)  WSL-Status:$($Script:C.Reset)"
     Write-Host ""
@@ -1025,6 +1028,9 @@ function Show-WSLStatus {
         ForEach-Object { Write-Host "    $_" }
     if ($ec -ne 0) { Write-Warn "Keine Online-Liste verfuegbar" }
     Write-Host ""
+    } finally {
+        [Console]::OutputEncoding = $prevEnc
+    }
 }
 
 #endregion

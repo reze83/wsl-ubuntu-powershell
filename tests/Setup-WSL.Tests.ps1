@@ -349,10 +349,11 @@ Describe 'Prompt-Confirm' {
             # Mock exit to prevent it from killing the test runner
             Mock -CommandName 'Exit-Script' -MockWith { throw 'ExitCalled' } -ErrorAction SilentlyContinue
 
-            # Prompt-Confirm calls exit (not Exit-Script) – catch the ScriptHaltException
-            { Prompt-Confirm -Label 'Loeschen?' -Default $false -Destructive } | Should -Throw
+            # Prompt-Confirm calls Exit-Script which is mocked to throw
+            { Prompt-Confirm -Label 'Loeschen?' -Default $false -Destructive } | Should -Throw -ExpectedMessage 'ExitCalled'
 
             Should -Invoke 'Write-Err' -Times 1 -Scope It
+            Should -Invoke 'Exit-Script' -Times 1 -Scope It
         }
     }
 }

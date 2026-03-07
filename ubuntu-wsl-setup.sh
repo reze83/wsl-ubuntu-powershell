@@ -99,6 +99,19 @@ is_valid_email() {
   return 0
 }
 
+_validate_installer_script() {
+  local file="$1" label="$2"
+  if [[ ! -s "$file" ]]; then
+    print_warning "$label: heruntergeladenes Script ist leer"
+    return 1
+  fi
+  if ! head -1 "$file" | grep -qE '^#!'; then
+    print_warning "$label: heruntergeladenes Script hat keinen Shebang"
+    return 1
+  fi
+  return 0
+}
+
 assert_valid_email_or_exit() {
   local value="$1" option_name="$2"
   if ! is_valid_email "$value"; then
@@ -454,6 +467,7 @@ _install_zoxide() {
   if curl -fsSL --connect-timeout 30 --max-time 120 \
       https://raw.githubusercontent.com/ajeetdsouza/zoxide/main/install.sh \
       -o "$tmp" 2>> "$LOG_FILE" \
+      && _validate_installer_script "$tmp" "zoxide" \
       && bash "$tmp" 2>> "$LOG_FILE"; then
     # shellcheck disable=SC2016
     append_if_missing "$BASHRC_PATH" "# wsl-setup:zoxide" \
@@ -606,6 +620,7 @@ setup_python() {
     local uv_tmp; uv_tmp=$(mktemp)
     if curl -fsSL --connect-timeout 30 --max-time 120 https://astral.sh/uv/install.sh \
         -o "$uv_tmp" 2>> "$LOG_FILE" \
+        && _validate_installer_script "$uv_tmp" "uv" \
         && bash "$uv_tmp" 2>> "$LOG_FILE"; then
       print_success "uv installiert"
     else
@@ -645,6 +660,7 @@ setup_nodejs() {
     if curl -fsSL --connect-timeout 30 --max-time 120 \
         "https://raw.githubusercontent.com/nvm-sh/nvm/v${NVM_VERSION}/install.sh" \
         -o "$nvm_tmp" 2>> "$LOG_FILE" \
+        && _validate_installer_script "$nvm_tmp" "nvm" \
         && bash "$nvm_tmp" 2>> "$LOG_FILE"; then
       print_success "nvm ${NVM_VERSION} installiert"
     else
@@ -776,7 +792,8 @@ setup_zsh() {
     omz_tmp=$(mktemp)
     if curl -fsSL --connect-timeout 30 --max-time 120 \
         https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh \
-        -o "$omz_tmp" 2>> "$LOG_FILE"; then
+        -o "$omz_tmp" 2>> "$LOG_FILE" \
+        && _validate_installer_script "$omz_tmp" "Oh-My-Zsh"; then
       RUNZSH=no CHSH=no bash "$omz_tmp" 2>> "$LOG_FILE" \
         || print_warning "Oh-My-Zsh: Installation fehlgeschlagen"
     else
@@ -831,7 +848,7 @@ export NVM_DIR="$HOME/.nvm"
   fi
   local current_shell; current_shell=$(getent passwd "$USER" 2>/dev/null | cut -d: -f7 || echo "")
   if [[ "$current_shell" != "$zsh_bin" ]]; then
-    sudo chsh -s "$zsh_bin" "$USER" \
+    sudo chsh -s "$zsh_bin" "$USER" 2>> "$LOG_FILE" \
       || print_warning "chsh fehlgeschlagen – Shell manuell aendern: chsh -s $zsh_bin"
   fi
 
