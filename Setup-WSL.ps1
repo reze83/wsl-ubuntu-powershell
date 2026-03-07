@@ -718,7 +718,7 @@ function Disable-WSLFeatures {
     # UTF-16 LE Encoding fuer wsl.exe Output in PS 5.1 setzen
     $prevEncoding = [Console]::OutputEncoding
     [Console]::OutputEncoding = [System.Text.Encoding]::Unicode
-    $remaining = @(wsl --list --quiet 2>&1 | Where-Object { $_.Trim() -ne '' })
+    $remaining = @(wsl --list --quiet 2>&1 | ForEach-Object { ($_ -replace '\0', '').Trim() } | Where-Object { $_ -ne '' })
     [Console]::OutputEncoding = $prevEncoding
     if ($remaining.Count -gt 0) {
         Write-Warn "Weitere WSL-Distributionen vorhanden – WSL-Features bleiben aktiv:"
@@ -737,8 +737,12 @@ function Disable-WSLFeatures {
     foreach ($feature in $features) {
         $state = Get-WindowsOptionalFeature -Online -FeatureName $feature -ErrorAction SilentlyContinue
         if ($state -and $state.State -eq 'Enabled') {
-            Disable-WindowsOptionalFeature -Online -FeatureName $feature -NoRestart | Out-Null
-            Write-Ok "$feature deaktiviert"
+            try {
+                Disable-WindowsOptionalFeature -Online -FeatureName $feature -NoRestart -ErrorAction Stop | Out-Null
+                Write-Ok "$feature deaktiviert"
+            } catch {
+                Write-Warn "Konnte $feature nicht deaktivieren: $_"
+            }
         }
     }
 
@@ -907,7 +911,7 @@ function Remove-TerminalProfile {
             [object[]]$before = @($json.profiles.list)
             [object[]]$after  = @($before | Where-Object {
                 -not ($_.source -eq 'Windows.Terminal.Wsl' -and
-                      $_.name   -like "*$Distribution*")
+                      $_.name   -eq $Distribution)
             })
 
             if ($after.Count -eq $before.Count) {
@@ -980,11 +984,8 @@ function Show-WSLStatus {
     Write-Host ""
     Write-Host "$($Script:C.Cyan)  WSL-Status:$($Script:C.Reset)"
     Write-Host ""
-    try {
-        wsl --status 2>&1 | ForEach-Object { Write-Host "    $_" }
-    } catch {
-        Write-Warn "wsl --status nicht verfuegbar"
-    }
+    wsl --status 2>&1 | ForEach-Object { Write-Host "    $_" }
+    if ($LASTEXITCODE -ne 0) { Write-Warn "wsl --status nicht verfuegbar" }
 
     Write-Host ""
     Write-Host "$($Script:C.Cyan)  Installierte Distributionen:$($Script:C.Reset)"
@@ -994,12 +995,9 @@ function Show-WSLStatus {
 
     Write-Host "$($Script:C.Cyan)  Verfuegbare Ubuntu-Versionen:$($Script:C.Reset)"
     Write-Host ""
-    try {
-        wsl --list --online 2>&1 | Where-Object { $_ -match 'Ubuntu' } |
-            ForEach-Object { Write-Host "    $_" }
-    } catch {
-        Write-Warn "Keine Online-Liste verfuegbar"
-    }
+    wsl --list --online 2>&1 | Where-Object { $_ -match 'Ubuntu' } |
+        ForEach-Object { Write-Host "    $_" }
+    if ($LASTEXITCODE -ne 0) { Write-Warn "Keine Online-Liste verfuegbar" }
     Write-Host ""
 }
 

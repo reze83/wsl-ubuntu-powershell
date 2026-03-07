@@ -1,5 +1,8 @@
 name: Lint
 
+permissions:
+  contents: read
+
 on:
   push:
     paths:
@@ -72,4 +75,10 @@ jobs:
         shell: pwsh
         run: |
           $result = Invoke-Pester -Path tests/ -PassThru -Output Detailed
+          $summary = "## Pester Results`n`n"
+          $summary += "| Metric | Count |`n|--------|-------|`n"
+          $summary += "| Passed | $($result.PassedCount) |`n"
+          $summary += "| Failed | $($result.FailedCount) |`n"
+          $summary += "| Skipped | $($result.SkippedCount) |`n"
+          $summary | Out-File -Append -FilePath $env:GITHUB_STEP_SUMMARY
           if ($result.FailedCount -gt 0) { exit 1 }

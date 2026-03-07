@@ -50,10 +50,15 @@ $Script:ExplicitParams = @{}
     } finally {
         Remove-Item $tmpScript -Force -ErrorAction SilentlyContinue
     }
+
+    # Smoke-check: verify critical functions were loaded
+    foreach ($fn in @('Prompt-Choice', 'Prompt-Text', 'Prompt-Confirm', 'Show-Summary', 'Test-ParamExplicit', 'Test-IsInteractiveSession', 'Start-InteractiveWizard')) {
+        Get-Command -Name $fn -ErrorAction Stop | Out-Null
+    }
 }
 
 AfterAll {
-    # Nothing to clean up
+    Remove-Variable -Name Interactive -Scope Global -ErrorAction SilentlyContinue
 }
 
 # ─── Test-IsInteractiveSession ────────────────────────────────────────────────

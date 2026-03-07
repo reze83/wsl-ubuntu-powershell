@@ -213,7 +213,7 @@ setup_sysctl() {
 vm.swappiness=10
 vm.vfs_cache_pressure=50
 EOF
-  sudo sysctl -p "$conf" &>/dev/null || true
+  sudo sysctl -p "$conf" 2>> "$LOG_FILE" || print_warning "sysctl: Parameter konnten nicht live geladen werden (erst nach WSL-Neustart aktiv)"
   print_success "Kernel-Parameter gesetzt (vm.swappiness=10)"
 }
 
@@ -455,7 +455,7 @@ _install_gh_cli() {
   local gpg_tmp; gpg_tmp=$(mktemp)
   if curl -fsSL --connect-timeout 30 --max-time 60 \
       https://cli.github.com/packages/githubcli-archive-keyring.gpg \
-      -o "$gpg_tmp" 2>/dev/null \
+      -o "$gpg_tmp" 2>> "$LOG_FILE" \
     && sudo install -m 644 "$gpg_tmp" "$keyring" \
     && echo "deb [arch=$(dpkg --print-architecture) signed-by=$keyring] \
 https://cli.github.com/packages stable main" \
@@ -472,7 +472,7 @@ https://cli.github.com/packages stable main" \
 _install_pwsh() {
   command -v pwsh &>/dev/null && { print_success "pwsh bereits vorhanden"; return; }
   local ubuntu_version
-  ubuntu_version=$(lsb_release -rs 2>/dev/null)
+  ubuntu_version=$(lsb_release -rs 2>> "$LOG_FILE")
   if [[ -z "$ubuntu_version" ]]; then
     print_warning "pwsh: Ubuntu-Version nicht ermittelbar – uebersprungen"
     return
@@ -579,8 +579,11 @@ setup_python() {
   print_step "Python + uv installieren..."
   if [[ "$DRY_RUN" == true ]]; then print_dim "[DRY-RUN] python3, pip, venv + uv (astral.sh)"; return; fi
 
-  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
-    python3 python3-pip python3-venv python3-dev 2>> "$LOG_FILE"
+  if ! sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+      python3 python3-pip python3-venv python3-dev 2>> "$LOG_FILE"; then
+    print_warning "Python-Pakete: Installation fehlgeschlagen – uebersprungen"
+    return
+  fi
 
   if ! command -v uv &>/dev/null; then
     local uv_tmp; uv_tmp=$(mktemp)
@@ -643,8 +646,12 @@ setup_nodejs() {
     print_warning "nvm install fehlgeschlagen – uebersprungen"
     return
   fi
-  nvm use "$NODE_VERSION"     2>> "$LOG_FILE"
-  nvm alias default "$NODE_VERSION" 2>> "$LOG_FILE"
+  if ! nvm use "$NODE_VERSION" 2>> "$LOG_FILE"; then
+    print_warning "nvm use fehlgeschlagen"
+  fi
+  if ! nvm alias default "$NODE_VERSION" 2>> "$LOG_FILE"; then
+    print_warning "nvm alias default fehlgeschlagen"
+  fi
 
   if ! command -v pnpm &>/dev/null; then
     if npm install -g pnpm 2>> "$LOG_FILE"; then
@@ -740,7 +747,10 @@ setup_zsh() {
 
   # zsh installieren
   if ! command -v zsh &>/dev/null; then
-    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq zsh
+    if ! sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq zsh 2>> "$LOG_FILE"; then
+      print_warning "zsh: Installation fehlgeschlagen – uebersprungen"
+      return
+    fi
   fi
 
   # Oh-My-Zsh installieren (falls noch nicht vorhanden)
@@ -750,7 +760,7 @@ setup_zsh() {
     if curl -fsSL --connect-timeout 30 --max-time 120 \
         https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh \
         -o "$omz_tmp" 2>> "$LOG_FILE"; then
-      RUNZSH=no CHSH=no bash "$omz_tmp" \
+      RUNZSH=no CHSH=no bash "$omz_tmp" 2>> "$LOG_FILE" \
         || print_warning "Oh-My-Zsh: Installation fehlgeschlagen"
     else
       print_warning "Oh-My-Zsh: Download fehlgeschlagen – uebersprungen"
@@ -1052,7 +1062,7 @@ EOF
 #-------------------------------------------------------------------------------
 offer_gh_auth_login() {
   command -v gh &>/dev/null || return 0
-  gh auth status &>/dev/null && return 0
+  gh auth status >> "$LOG_FILE" 2>&1 && return 0
   [[ ! -t 0 ]] && return 0
 
   local reply
