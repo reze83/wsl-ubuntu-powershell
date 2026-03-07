@@ -188,7 +188,9 @@ setup_locale() {
   if ! sudo locale-gen en_US.UTF-8 de_DE.UTF-8 2>> "$LOG_FILE"; then
     print_warning "locale-gen fehlgeschlagen"
   fi
-  sudo update-locale LANG=en_US.UTF-8 LC_MESSAGES=POSIX 2>> "$LOG_FILE"
+  if ! sudo update-locale LANG=en_US.UTF-8 LC_MESSAGES=POSIX 2>> "$LOG_FILE"; then
+    print_warning "update-locale fehlgeschlagen"
+  fi
   print_success "Locale: en_US.UTF-8 / de_DE.UTF-8"
 }
 
@@ -476,7 +478,7 @@ _install_gh_cli() {
 https://cli.github.com/packages stable main" \
         | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
     && sudo apt-get update -qq 2>> "$LOG_FILE" \
-    && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq gh; then
+    && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq gh 2>> "$LOG_FILE"; then
     print_success "gh (GitHub CLI) installiert"
   else
     print_warning "gh: Installation fehlgeschlagen – uebersprungen"
@@ -498,7 +500,7 @@ _install_pwsh() {
   if curl -fsSL --connect-timeout 30 --max-time 120 "$deb_url" -o "$tmp_deb" 2>> "$LOG_FILE" \
     && sudo dpkg -i "$tmp_deb" 2>> "$LOG_FILE" \
     && sudo apt-get update -qq 2>> "$LOG_FILE" \
-    && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq powershell; then
+    && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq powershell 2>> "$LOG_FILE"; then
     print_success "pwsh $(pwsh --version 2>/dev/null | cut -d' ' -f2 || echo '?') installiert"
   else
     print_warning "pwsh: Installation fehlgeschlagen – uebersprungen"
@@ -526,7 +528,7 @@ _install_lazygit() {
   version=$(curl -fsSL --connect-timeout 30 --max-time 60 \
     "https://api.github.com/repos/jesseduffield/lazygit/releases/latest" 2>> "$LOG_FILE" \
     | grep '"tag_name"' | cut -d'"' -f4 | sed 's/^v//' || true)
-  if [[ -z "$version" ]]; then
+  if [[ -z "$version" ]] || ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
     print_warning "lazygit: Version nicht ermittelbar – uebersprungen"
     return
   fi

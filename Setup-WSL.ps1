@@ -492,9 +492,18 @@ function Register-ResumeTask {
     if ($DryRun) { Write-Dim "[DRY-RUN] Register-ResumeTask"; return }
     $argList = "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`" install" +
                " -Distribution $Distribution -SetupMode $SetupMode"
-    if ($GitUserName)  { $argList += " -GitUserName '"  + ($GitUserName  -replace "'", "''") + "'" }
-    if ($GitUserEmail) { $argList += " -GitUserEmail '" + ($GitUserEmail -replace "'", "''") + "'" }
-    if ($SshKeyEmail)  { $argList += " -SshKeyEmail '"  + ($SshKeyEmail  -replace "'", "''") + "'" }
+    if ($GitUserName) {
+        $safe = [System.Management.Automation.Language.CodeGeneration]::EscapeSingleQuotedStringContent($GitUserName)
+        $argList += " -GitUserName '$safe'"
+    }
+    if ($GitUserEmail) {
+        $safe = [System.Management.Automation.Language.CodeGeneration]::EscapeSingleQuotedStringContent($GitUserEmail)
+        $argList += " -GitUserEmail '$safe'"
+    }
+    if ($SshKeyEmail) {
+        $safe = [System.Management.Automation.Language.CodeGeneration]::EscapeSingleQuotedStringContent($SshKeyEmail)
+        $argList += " -SshKeyEmail '$safe'"
+    }
     # NOTE: -Interactive intentionally omitted – scheduled task always runs non-interactive
 
     try {
@@ -556,9 +565,18 @@ function Invoke-ElevatedIfNeeded {
 
     $argList = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "`"$PSCommandPath`"", $Action)
     $argList += @("-Distribution", $Distribution, "-SetupMode", $SetupMode)
-    if ($GitUserName)  { $argList += @("-GitUserName",  "'" + ($GitUserName  -replace "'", "''") + "'") }
-    if ($GitUserEmail) { $argList += @("-GitUserEmail", "'" + ($GitUserEmail -replace "'", "''") + "'") }
-    if ($SshKeyEmail)  { $argList += @("-SshKeyEmail",  "'" + ($SshKeyEmail  -replace "'", "''") + "'") }
+    if ($GitUserName) {
+        $safe = [System.Management.Automation.Language.CodeGeneration]::EscapeSingleQuotedStringContent($GitUserName)
+        $argList += @("-GitUserName", "'$safe'")
+    }
+    if ($GitUserEmail) {
+        $safe = [System.Management.Automation.Language.CodeGeneration]::EscapeSingleQuotedStringContent($GitUserEmail)
+        $argList += @("-GitUserEmail", "'$safe'")
+    }
+    if ($SshKeyEmail) {
+        $safe = [System.Management.Automation.Language.CodeGeneration]::EscapeSingleQuotedStringContent($SshKeyEmail)
+        $argList += @("-SshKeyEmail", "'$safe'")
+    }
     if ($RemoveWSLFeatures) { $argList += "-RemoveWSLFeatures" }
     if ($Script:ExplicitParams.ContainsKey('Interactive')) { $argList += "-Interactive:`$$($Interactive.IsPresent)" }
     if ($KeepWindowOpenInternal -or $Script:ExplorerLaunch) { $argList += "-KeepWindowOpenInternal" }
@@ -599,7 +617,7 @@ function Enable-WSLFeatures {
             Write-Err "Feature $feature konnte nicht aktiviert werden: $_"
             Exit-Script 1
         }
-        if ($result.RestartNeeded) { $rebootNeeded = $true }
+        if ($result -and $result.RestartNeeded) { $rebootNeeded = $true }
     }
 
     if ($rebootNeeded -and -not $DryRun) {
@@ -898,10 +916,10 @@ function Remove-TerminalProfile {
 
         try {
             $raw = Get-Content $settingsPath -Raw -Encoding UTF8
-            # JSONC: Kommentare entfernen (Zeilen-Kommentare und Inline-Kommentare)
+            # JSONC: Nur ganzzeilige Kommentare entfernen (Inline-// koennte in
+            # JSON-Strings wie URLs oder Icon-Pfaden vorkommen)
             $stripped = ($raw -split '\r?\n' |
-                Where-Object { $_ -notmatch '^\s*//' } |
-                ForEach-Object { $_ -replace '\s*//[^"]*$', '' }) -join "`n"
+                Where-Object { $_ -notmatch '^\s*//' }) -join "`n"
             $json = $stripped | ConvertFrom-Json
 
             if (-not ($json.profiles.PSObject.Properties.Name -contains 'list')) {
@@ -985,24 +1003,27 @@ function Show-WSLStatus {
     Write-Host ""
     Write-Host "$($Script:C.Cyan)  WSL-Status:$($Script:C.Reset)"
     Write-Host ""
-    wsl --status 2>&1 | ForEach-Object { ($_ -replace '\0', '').Trim() } |
+    $raw = wsl --status 2>&1; $ec = $LASTEXITCODE
+    $raw | ForEach-Object { ($_ -replace '\0', '').Trim() } |
         Where-Object { $_ -ne '' } | ForEach-Object { Write-Host "    $_" }
-    if ($LASTEXITCODE -ne 0) { Write-Warn "wsl --status nicht verfuegbar" }
+    if ($ec -ne 0) { Write-Warn "wsl --status nicht verfuegbar" }
 
     Write-Host ""
     Write-Host "$($Script:C.Cyan)  Installierte Distributionen:$($Script:C.Reset)"
     Write-Host ""
-    wsl --list --verbose 2>&1 | ForEach-Object { ($_ -replace '\0', '').Trim() } |
+    $raw = wsl --list --verbose 2>&1; $ec = $LASTEXITCODE
+    $raw | ForEach-Object { ($_ -replace '\0', '').Trim() } |
         Where-Object { $_ -ne '' } | ForEach-Object { Write-Host "    $_" }
-    if ($LASTEXITCODE -ne 0) { Write-Warn "Keine Distributionen gefunden" }
+    if ($ec -ne 0) { Write-Warn "Keine Distributionen gefunden" }
     Write-Host ""
 
     Write-Host "$($Script:C.Cyan)  Verfuegbare Ubuntu-Versionen:$($Script:C.Reset)"
     Write-Host ""
-    wsl --list --online 2>&1 | ForEach-Object { ($_ -replace '\0', '').Trim() } |
+    $raw = wsl --list --online 2>&1; $ec = $LASTEXITCODE
+    $raw | ForEach-Object { ($_ -replace '\0', '').Trim() } |
         Where-Object { $_ -ne '' } | Where-Object { $_ -match 'Ubuntu' } |
         ForEach-Object { Write-Host "    $_" }
-    if ($LASTEXITCODE -ne 0) { Write-Warn "Keine Online-Liste verfuegbar" }
+    if ($ec -ne 0) { Write-Warn "Keine Online-Liste verfuegbar" }
     Write-Host ""
 }
 

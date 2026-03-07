@@ -10,5 +10,8 @@
 *.psm1  text eol=crlf
 *.psd1  text eol=crlf
 
+# Batch-Scripts: CRLF fuer Windows
+*.cmd   text eol=crlf
+
 # Markdown: LF
 *.md    text eol=lf

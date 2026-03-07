@@ -66,9 +66,12 @@ AfterAll {
 Describe 'Test-IsInteractiveSession' {
 
     Context 'When -Interactive switch is explicitly provided' {
+        AfterEach {
+            Remove-Variable -Name Interactive -Scope Global -ErrorAction SilentlyContinue
+        }
+
         It 'returns true when Interactive is Present' {
             $Script:ExplicitParams = @{ Interactive = $true }
-            $Script:Interactive_backup = $null
 
             # Simulate $Interactive switch being present
             $global:Interactive = [switch]::Present
@@ -96,20 +99,16 @@ Describe 'Test-IsInteractiveSession' {
             $Script:ExplicitParams = @{}
         }
 
-        It 'returns false when CommandLineArgs contain -NonInteractive' -Skip:(-not $IsWindows -and -not ($PSVersionTable.PSVersion.Major -le 5)) {
+        It 'returns a bool when CommandLineArgs contain -NonInteractive' -Skip:($PSVersionTable.PSVersion.Major -ge 6 -and -not $IsWindows) {
             Mock -CommandName 'Get-ScheduledTask' -MockWith { $null }
 
-            # We cannot easily mock [Environment]::GetCommandLineArgs() in PS 5.1,
-            # but we can verify the function logic indirectly.
-            # The function checks UserInteractive which we can influence via mocking
-            # the scheduled task check.
-            # This test documents expected behavior rather than being fully mockable.
+            # We cannot easily mock [Environment]::GetCommandLineArgs() in PS 5.1.
+            # This test verifies the function returns a bool without error.
             $result = Test-IsInteractiveSession
-            # Result depends on actual environment; just verify it returns a bool
             $result | Should -BeOfType [bool]
         }
 
-        It 'returns false when a resume task exists' -Skip:(-not $IsWindows -and -not ($PSVersionTable.PSVersion.Major -le 5)) {
+        It 'returns false when a resume task exists' -Skip:($PSVersionTable.PSVersion.Major -ge 6 -and -not $IsWindows) {
             Mock -CommandName 'Get-ScheduledTask' -MockWith {
                 [PSCustomObject]@{ TaskName = 'WSL-Setup-Resume' }
             }
@@ -150,7 +149,6 @@ Describe 'Test-ParamExplicit' {
 Describe 'Prompt-Choice' {
 
     BeforeEach {
-        $script:readHostCalls = 0
     }
 
     It 'returns default option when user presses Enter' {
