@@ -16,6 +16,7 @@ desktop.ini
 
 # Claude Code
 CLAUDE.md
+.claude/
 .serena/
 
 # IDE
