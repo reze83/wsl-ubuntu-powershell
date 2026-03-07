@@ -484,7 +484,7 @@ _install_pwsh() {
     && sudo dpkg -i "$tmp_deb" 2>> "$LOG_FILE" \
     && sudo apt-get update -qq \
     && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq powershell; then
-    print_success "pwsh $(pwsh --version 2>/dev/null | cut -d' ' -f2) installiert"
+    print_success "pwsh $(pwsh --version 2>/dev/null | cut -d' ' -f2 || echo '?') installiert"
   else
     print_warning "pwsh: Installation fehlgeschlagen – uebersprungen"
   fi
@@ -498,7 +498,7 @@ _install_yq() {
   local tmp; tmp=$(mktemp)
   if curl -fsSL --connect-timeout 30 --max-time 300 "$url" -o "$tmp" 2>> "$LOG_FILE"; then
     install -m 755 "$tmp" "$LOCAL_BIN_DIR/yq"
-    print_success "yq $("$LOCAL_BIN_DIR/yq" --version 2>/dev/null | awk '{print $NF}') installiert"
+    print_success "yq $("$LOCAL_BIN_DIR/yq" --version 2>/dev/null | awk '{print $NF}' || echo '?') installiert"
   else
     print_warning "yq: Download fehlgeschlagen – uebersprungen"
   fi
@@ -605,7 +605,7 @@ break-system-packages = false
 EOF
 
   local py_version
-  py_version=$(python3 --version 2>/dev/null | cut -d' ' -f2)
+  py_version=$(python3 --version 2>/dev/null | cut -d' ' -f2 || echo "?")
   local uv_info=""
   command -v uv &>/dev/null && uv_info=" + uv"
   print_success "Python $py_version$uv_info"
@@ -807,8 +807,12 @@ export NVM_DIR="$HOME/.nvm"
   fi
 
   # Als Default-Shell setzen
-  local zsh_bin; zsh_bin=$(command -v zsh)
-  local current_shell; current_shell=$(getent passwd "$USER" | cut -d: -f7)
+  local zsh_bin; zsh_bin=$(command -v zsh 2>/dev/null || true)
+  if [[ -z "$zsh_bin" ]]; then
+    print_warning "zsh nicht im PATH – Shell-Wechsel uebersprungen"
+    return
+  fi
+  local current_shell; current_shell=$(getent passwd "$USER" 2>/dev/null | cut -d: -f7 || echo "")
   if [[ "$current_shell" != "$zsh_bin" ]]; then
     sudo chsh -s "$zsh_bin" "$USER" \
       || print_warning "chsh fehlgeschlagen – Shell manuell aendern: chsh -s $zsh_bin"
@@ -1113,7 +1117,7 @@ offer_passwordless_sudo() {
 #-------------------------------------------------------------------------------
 main() {
   parse_args "$@"
-  : > "$LOG_FILE"
+  install -m 600 /dev/null "$LOG_FILE"
   log "=== Setup gestartet: $INSTALL_MODE ==="
   show_banner
   preflight_checks

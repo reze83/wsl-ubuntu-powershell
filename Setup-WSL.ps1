@@ -991,6 +991,7 @@ function Show-WSLStatus {
     Write-Host "$($Script:C.Cyan)  Installierte Distributionen:$($Script:C.Reset)"
     Write-Host ""
     wsl --list --verbose 2>&1 | ForEach-Object { Write-Host "    $_" }
+    if ($LASTEXITCODE -ne 0) { Write-Warn "Keine Distributionen gefunden" }
     Write-Host ""
 
     Write-Host "$($Script:C.Cyan)  Verfuegbare Ubuntu-Versionen:$($Script:C.Reset)"
