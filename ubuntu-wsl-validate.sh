@@ -249,19 +249,19 @@ check_wsl_conf() {
     check_file "/etc/wsl.conf" "/etc/wsl.conf"
 
     if [[ -f /etc/wsl.conf ]]; then
-        if grep -q 'systemd=true' /etc/wsl.conf 2>/dev/null; then
+        if grep -qF 'systemd=true' /etc/wsl.conf 2>/dev/null; then
             pass "systemd=true konfiguriert"
         else
             fail "systemd=true fehlt in /etc/wsl.conf"
         fi
 
-        if grep -q 'appendWindowsPath=false' /etc/wsl.conf 2>/dev/null; then
+        if grep -qF 'appendWindowsPath=false' /etc/wsl.conf 2>/dev/null; then
             pass "appendWindowsPath=false konfiguriert"
         else
             fail "appendWindowsPath=false fehlt in /etc/wsl.conf"
         fi
 
-        if grep -q 'generateResolvConf=true' /etc/wsl.conf 2>/dev/null; then
+        if grep -qF 'generateResolvConf=true' /etc/wsl.conf 2>/dev/null; then
             pass "generateResolvConf=true konfiguriert"
         else
             warn "generateResolvConf=true nicht in /etc/wsl.conf" "Netzwerk-DNS koennte abweichen"
@@ -278,13 +278,13 @@ check_sysctl() {
     check_file "/etc/sysctl.d/99-wsl.conf" "/etc/sysctl.d/99-wsl.conf"
 
     if [[ -f /etc/sysctl.d/99-wsl.conf ]]; then
-        if grep -q 'vm.swappiness=10' /etc/sysctl.d/99-wsl.conf 2>/dev/null; then
+        if grep -qxF 'vm.swappiness=10' /etc/sysctl.d/99-wsl.conf 2>/dev/null; then
             pass "vm.swappiness=10 in 99-wsl.conf"
         else
             fail "vm.swappiness=10 fehlt in /etc/sysctl.d/99-wsl.conf"
         fi
 
-        if grep -q 'vm.vfs_cache_pressure=50' /etc/sysctl.d/99-wsl.conf 2>/dev/null; then
+        if grep -qxF 'vm.vfs_cache_pressure=50' /etc/sysctl.d/99-wsl.conf 2>/dev/null; then
             pass "vm.vfs_cache_pressure=50 in 99-wsl.conf"
         else
             fail "vm.vfs_cache_pressure=50 fehlt in /etc/sysctl.d/99-wsl.conf"
@@ -362,7 +362,7 @@ check_shell() {
     check_file_contains "${HOME}/.bashrc" 'shopt -s histappend' \
         "histappend aktiviert"
 
-    if echo "${PATH}" | grep -qF "${HOME}/.local/bin"; then
+    if echo ":${PATH}:" | grep -qF ":${HOME}/.local/bin:"; then
         pass "${HOME}/.local/bin ist im PATH"
     else
         warn "${HOME}/.local/bin nicht im PATH" ".bashrc neu laden: source ${HOME}/.bashrc"
@@ -592,8 +592,12 @@ check_python() {
     check_cmd "python3" "python3"
 
     local py_version
-    py_version=$(python3 --version 2>/dev/null | cut -d' ' -f2 || echo "unbekannt")
-    pass "Python-Version: $py_version"
+    py_version=$(python3 --version 2>/dev/null | cut -d' ' -f2 || echo "")
+    if [[ -n "$py_version" ]]; then
+        pass "Python-Version: $py_version"
+    else
+        warn "Python-Version nicht ermittelbar"
+    fi
 
     if command -v uv &>/dev/null; then
         pass "uv verfuegbar: $(command -v uv)"
@@ -617,7 +621,7 @@ check_nodejs() {
         # nvm in aktueller Shell laden
         export NVM_DIR="${HOME}/.nvm"
         # shellcheck source=/dev/null
-        source "${HOME}/.nvm/nvm.sh"
+        source "${HOME}/.nvm/nvm.sh" || { warn "nvm.sh konnte nicht geladen werden"; return; }
 
         if command -v node &>/dev/null; then
             local node_ver
@@ -643,7 +647,7 @@ check_nodejs() {
     fi
 
     # nvm-Init in .bashrc pruefen
-    if grep -q 'NVM_DIR' "${HOME}/.bashrc" 2>/dev/null; then
+    if grep -qE '^[^#]*NVM_DIR' "${HOME}/.bashrc" 2>/dev/null; then
         pass "nvm-Init in .bashrc vorhanden"
     else
         fail "nvm-Init fehlt in .bashrc" "Muss NVM_DIR und nvm.sh source enthalten"
@@ -689,7 +693,7 @@ check_zsh() {
 
     if [[ -n "$zsh_bin" ]]; then
         local current_shell
-        current_shell=$(getent passwd "$USER" 2>/dev/null | cut -d: -f7 || true)
+        current_shell=$(getent passwd "$USER" 2>/dev/null | cut -d: -f7) || current_shell="unbekannt"
         if [[ "$current_shell" == "$zsh_bin" ]]; then
             pass "zsh ist Default-Shell: $current_shell"
         else
@@ -711,14 +715,14 @@ check_zsh() {
     check_file "${HOME}/.zshrc" "${HOME}/.zshrc"
 
     if [[ -f "${HOME}/.zshrc" ]]; then
-        if grep -q 'zsh-autosuggestions' "${HOME}/.zshrc" 2>/dev/null; then
+        if grep -qE '^\s*plugins=.*zsh-autosuggestions' "${HOME}/.zshrc" 2>/dev/null; then
             pass "zsh-autosuggestions in plugins= aktiviert"
         else
             fail "zsh-autosuggestions nicht in .zshrc plugins=" \
                 "plugins=(git zsh-autosuggestions zsh-syntax-highlighting)"
         fi
 
-        if grep -q 'zsh-syntax-highlighting' "${HOME}/.zshrc" 2>/dev/null; then
+        if grep -qE '^\s*plugins=.*zsh-syntax-highlighting' "${HOME}/.zshrc" 2>/dev/null; then
             pass "zsh-syntax-highlighting in plugins= aktiviert"
         else
             fail "zsh-syntax-highlighting nicht in .zshrc plugins=" \
@@ -738,8 +742,12 @@ check_pwsh() {
 
     if command -v pwsh &>/dev/null; then
         local pwsh_ver
-        pwsh_ver=$(pwsh --version 2>/dev/null | cut -d' ' -f2 || echo "unbekannt")
-        pass "pwsh verfuegbar: $pwsh_ver"
+        pwsh_ver=$(pwsh --version 2>/dev/null | cut -d' ' -f2 || echo "")
+        if [[ -n "$pwsh_ver" ]]; then
+            pass "pwsh verfuegbar: $pwsh_ver"
+        else
+            warn "pwsh Version nicht ermittelbar"
+        fi
     else
         fail "pwsh nicht gefunden" "Via Microsoft apt-Repo installieren"
     fi

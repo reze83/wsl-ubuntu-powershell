@@ -145,8 +145,14 @@ parse_args() {
 system_update() {
   print_step "System aktualisieren..."
   if [[ "$DRY_RUN" == true ]]; then print_dim "[DRY-RUN] apt-get update + full-upgrade"; return; fi
-  sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq
-  sudo DEBIAN_FRONTEND=noninteractive apt-get full-upgrade -y -qq
+  if ! sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq 2>> "$LOG_FILE"; then
+    print_error "apt-get update fehlgeschlagen"
+    exit 1
+  fi
+  if ! sudo DEBIAN_FRONTEND=noninteractive apt-get full-upgrade -y -qq 2>> "$LOG_FILE"; then
+    print_error "apt-get full-upgrade fehlgeschlagen"
+    exit 1
+  fi
   print_success "System aktuell"
 }
 
@@ -166,7 +172,10 @@ install_base_packages() {
     print_dim "[DRY-RUN] apt install: ${packages[*]}"
     return
   fi
-  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${packages[@]}"
+  if ! sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${packages[@]}" 2>> "$LOG_FILE"; then
+    print_error "Basis-Pakete: Installation fehlgeschlagen"
+    exit 1
+  fi
   print_success "Basis-Pakete (${#packages[@]}) installiert"
 }
 
@@ -176,8 +185,10 @@ install_base_packages() {
 setup_locale() {
   print_step "Locale konfigurieren..."
   if [[ "$DRY_RUN" == true ]]; then print_dim "[DRY-RUN] locale-gen en_US.UTF-8 de_DE.UTF-8"; return; fi
-  sudo locale-gen en_US.UTF-8 de_DE.UTF-8
-  sudo update-locale LANG=en_US.UTF-8 LC_MESSAGES=POSIX
+  if ! sudo locale-gen en_US.UTF-8 de_DE.UTF-8 2>> "$LOG_FILE"; then
+    print_warning "locale-gen fehlgeschlagen"
+  fi
+  sudo update-locale LANG=en_US.UTF-8 LC_MESSAGES=POSIX 2>> "$LOG_FILE"
   print_success "Locale: en_US.UTF-8 / de_DE.UTF-8"
 }
 
@@ -358,7 +369,9 @@ generate_ssh_key_if_missing() {
   ssh-keygen -t ed25519 -C "${email:-$(whoami)@$(hostname)}" -f "$SSH_KEY"
   print_success "SSH-Key erstellt: $SSH_KEY"
   printf '\n  %bPublic Key (fuer GitHub/GitLab → Settings → SSH Keys einfuegen):%b\n' "$CYAN" "$NC"
-  printf '  %s\n\n' "$(cat "${SSH_KEY}.pub")"
+  if [[ -f "${SSH_KEY}.pub" ]]; then
+    printf '  %s\n\n' "$(cat "${SSH_KEY}.pub")"
+  fi
 }
 
 #-------------------------------------------------------------------------------
@@ -462,7 +475,7 @@ _install_gh_cli() {
     && echo "deb [arch=$(dpkg --print-architecture) signed-by=$keyring] \
 https://cli.github.com/packages stable main" \
         | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
-    && sudo apt-get update -qq \
+    && sudo apt-get update -qq 2>> "$LOG_FILE" \
     && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq gh; then
     print_success "gh (GitHub CLI) installiert"
   else
@@ -484,7 +497,7 @@ _install_pwsh() {
   local deb_url="https://packages.microsoft.com/config/ubuntu/${ubuntu_version}/packages-microsoft-prod.deb"
   if curl -fsSL --connect-timeout 30 --max-time 120 "$deb_url" -o "$tmp_deb" 2>> "$LOG_FILE" \
     && sudo dpkg -i "$tmp_deb" 2>> "$LOG_FILE" \
-    && sudo apt-get update -qq \
+    && sudo apt-get update -qq 2>> "$LOG_FILE" \
     && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq powershell; then
     print_success "pwsh $(pwsh --version 2>/dev/null | cut -d' ' -f2 || echo '?') installiert"
   else
@@ -498,8 +511,8 @@ _install_yq() {
   local arch; arch=$(dpkg --print-architecture)
   local url="https://github.com/mikefarah/yq/releases/latest/download/yq_linux_${arch}"
   local tmp; tmp=$(mktemp)
-  if curl -fsSL --connect-timeout 30 --max-time 300 "$url" -o "$tmp" 2>> "$LOG_FILE"; then
-    install -m 755 "$tmp" "$LOCAL_BIN_DIR/yq"
+  if curl -fsSL --connect-timeout 30 --max-time 300 "$url" -o "$tmp" 2>> "$LOG_FILE" \
+    && install -m 755 "$tmp" "$LOCAL_BIN_DIR/yq"; then
     print_success "yq $("$LOCAL_BIN_DIR/yq" --version 2>/dev/null | awk '{print $NF}' || echo '?') installiert"
   else
     print_warning "yq: Download fehlgeschlagen – uebersprungen"
@@ -1101,16 +1114,19 @@ offer_passwordless_sudo() {
     return 1
   fi
 
-  echo "${USER} ALL=(ALL) NOPASSWD: ALL" | sudo tee "$sudoers_file" > /dev/null
-  sudo chmod 440 "$sudoers_file"
+  local tmp_sudoers
+  tmp_sudoers=$(mktemp)
+  echo "${USER} ALL=(ALL) NOPASSWD: ALL" > "$tmp_sudoers"
 
-  # Validate sudoers syntax – rollback on failure
-  if ! sudo visudo -c -f "$sudoers_file" > /dev/null 2>&1; then
-    print_error "Sudoers-Syntax ungueltig – Rollback"
-    sudo rm -f "$sudoers_file"
+  # Validate sudoers syntax before installing
+  if ! sudo visudo -c -f "$tmp_sudoers" > /dev/null 2>&1; then
+    print_error "Sudoers-Syntax ungueltig"
+    rm -f "$tmp_sudoers"
     return 1
   fi
 
+  sudo install -m 440 "$tmp_sudoers" "$sudoers_file"
+  rm -f "$tmp_sudoers"
   print_success "Passwordless sudo eingerichtet: $sudoers_file"
 }
 

@@ -386,7 +386,7 @@ Invoke-ScriptAnalyzer -Path Setup-WSL.ps1
 
 # Pester 5 Tests (PowerShell 5.1+, Pester 5.x erforderlich)
 # Pester installieren (einmalig):
-Install-Module -Name Pester -MinimumVersion 5.0.0 -Force -SkipPublisherCheck
+Install-Module -Name Pester -RequiredVersion 5.7.1 -Force -SkipPublisherCheck
 
 # Tests ausführen:
 Invoke-Pester -Path tests\Setup-WSL.Tests.ps1 -Output Detailed

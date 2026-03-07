@@ -898,9 +898,10 @@ function Remove-TerminalProfile {
 
         try {
             $raw = Get-Content $settingsPath -Raw -Encoding UTF8
-            # JSONC: Zeilen entfernen die nur Kommentare enthalten
+            # JSONC: Kommentare entfernen (Zeilen-Kommentare und Inline-Kommentare)
             $stripped = ($raw -split '\r?\n' |
-                Where-Object { $_ -notmatch '^\s*//' }) -join "`n"
+                Where-Object { $_ -notmatch '^\s*//' } |
+                ForEach-Object { $_ -replace '\s*//[^"]*$', '' }) -join "`n"
             $json = $stripped | ConvertFrom-Json
 
             if (-not ($json.profiles.PSObject.Properties.Name -contains 'list')) {
@@ -984,19 +985,22 @@ function Show-WSLStatus {
     Write-Host ""
     Write-Host "$($Script:C.Cyan)  WSL-Status:$($Script:C.Reset)"
     Write-Host ""
-    wsl --status 2>&1 | ForEach-Object { Write-Host "    $_" }
+    wsl --status 2>&1 | ForEach-Object { ($_ -replace '\0', '').Trim() } |
+        Where-Object { $_ -ne '' } | ForEach-Object { Write-Host "    $_" }
     if ($LASTEXITCODE -ne 0) { Write-Warn "wsl --status nicht verfuegbar" }
 
     Write-Host ""
     Write-Host "$($Script:C.Cyan)  Installierte Distributionen:$($Script:C.Reset)"
     Write-Host ""
-    wsl --list --verbose 2>&1 | ForEach-Object { Write-Host "    $_" }
+    wsl --list --verbose 2>&1 | ForEach-Object { ($_ -replace '\0', '').Trim() } |
+        Where-Object { $_ -ne '' } | ForEach-Object { Write-Host "    $_" }
     if ($LASTEXITCODE -ne 0) { Write-Warn "Keine Distributionen gefunden" }
     Write-Host ""
 
     Write-Host "$($Script:C.Cyan)  Verfuegbare Ubuntu-Versionen:$($Script:C.Reset)"
     Write-Host ""
-    wsl --list --online 2>&1 | Where-Object { $_ -match 'Ubuntu' } |
+    wsl --list --online 2>&1 | ForEach-Object { ($_ -replace '\0', '').Trim() } |
+        Where-Object { $_ -ne '' } | Where-Object { $_ -match 'Ubuntu' } |
         ForEach-Object { Write-Host "    $_" }
     if ($LASTEXITCODE -ne 0) { Write-Warn "Keine Online-Liste verfuegbar" }
     Write-Host ""

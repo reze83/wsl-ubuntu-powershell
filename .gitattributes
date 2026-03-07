@@ -1,3 +1,6 @@
+# Alles andere: Git entscheidet
+*       text=auto
+
 # Bash-Scripts: immer LF
 *.sh    text eol=lf
 
@@ -9,6 +12,3 @@
 
 # Markdown: LF
 *.md    text eol=lf
-
-# Alles andere: Git entscheidet
-*       text=auto
