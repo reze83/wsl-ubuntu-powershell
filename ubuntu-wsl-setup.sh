@@ -112,6 +112,13 @@ _validate_installer_script() {
   return 0
 }
 
+_git_config() {
+  if ! git config "$@" 2>> "$LOG_FILE"; then
+    print_warning "git config $* fehlgeschlagen"
+    return 1
+  fi
+}
+
 assert_valid_email_or_exit() {
   local value="$1" option_name="$2"
   if ! is_valid_email "$value"; then
@@ -250,23 +257,23 @@ setup_git() {
   print_step "Git konfigurieren..."
   if [[ "$DRY_RUN" == true ]]; then print_dim "[DRY-RUN] git config --global ..."; return; fi
 
-  git config --global init.defaultBranch main
-  git config --global core.autocrlf false
-  git config --global core.eol lf
-  git config --global pull.rebase false
-  git config --global push.autoSetupRemote true
-  git config --global rerere.enabled true
-  git config --global diff.colorMoved zebra
+  _git_config --global init.defaultBranch main
+  _git_config --global core.autocrlf false
+  _git_config --global core.eol lf
+  _git_config --global pull.rebase false
+  _git_config --global push.autoSetupRemote true
+  _git_config --global rerere.enabled true
+  _git_config --global diff.colorMoved zebra
 
   # Git Credential Manager (Windows-seitig, falls verfuegbar)
   local gcm
   gcm=$(command -v git-credential-manager.exe 2>/dev/null || true)
   if [[ -n "$gcm" ]]; then
-    git config --global credential.helper "$gcm"
+    _git_config --global credential.helper "$gcm"
   fi
 
-  [[ -n "${GIT_USER_NAME:-}" ]]  && git config --global user.name  "$GIT_USER_NAME"
-  [[ -n "${GIT_USER_EMAIL:-}" ]] && git config --global user.email "$GIT_USER_EMAIL"
+  [[ -n "${GIT_USER_NAME:-}" ]]  && _git_config --global user.name  "$GIT_USER_NAME"
+  [[ -n "${GIT_USER_EMAIL:-}" ]] && _git_config --global user.email "$GIT_USER_EMAIL"
 
   print_success "Git konfiguriert (main-Branch, LF, rebase=false, rerere)"
 }
@@ -410,9 +417,9 @@ install_cli_tools() {
 
   # delta als git-Pager konfigurieren
   if command -v delta &>/dev/null; then
-    git config --global core.pager delta
-    git config --global interactive.diffFilter 'delta --color-only'
-    git config --global delta.navigate true
+    _git_config --global core.pager delta
+    _git_config --global interactive.diffFilter 'delta --color-only'
+    _git_config --global delta.navigate true
     print_success "delta als git-Pager konfiguriert"
   fi
 
@@ -443,7 +450,7 @@ _install_eza() {
   local url="https://github.com/eza-community/eza/releases/latest/download/eza_${arch}-unknown-linux-gnu.tar.gz"
   if curl -fsSL --connect-timeout 30 --max-time 300 "$url" -o "$tmp/eza.tar.gz" 2>> "$LOG_FILE"; then
     if tar xzf "$tmp/eza.tar.gz" -C "$tmp" 2>> "$LOG_FILE" \
-        && install -m 755 "$tmp/eza" "$LOCAL_BIN_DIR/eza"; then
+        && install -m 755 "$tmp/eza" "$LOCAL_BIN_DIR/eza" 2>> "$LOG_FILE"; then
       print_success "eza installiert"
       # ls-Aliases auf eza umstellen
       append_if_missing "$BASHRC_PATH" "# wsl-setup:eza" \
@@ -528,7 +535,7 @@ _install_yq() {
   local url="https://github.com/mikefarah/yq/releases/latest/download/yq_linux_${arch}"
   local tmp; tmp=$(mktemp)
   if curl -fsSL --connect-timeout 30 --max-time 300 "$url" -o "$tmp" 2>> "$LOG_FILE" \
-    && install -m 755 "$tmp" "$LOCAL_BIN_DIR/yq"; then
+    && install -m 755 "$tmp" "$LOCAL_BIN_DIR/yq" 2>> "$LOG_FILE"; then
     print_success "yq $("$LOCAL_BIN_DIR/yq" --version 2>/dev/null | awk '{print $NF}' || echo '?') installiert"
   else
     print_warning "yq: Download fehlgeschlagen – uebersprungen"
@@ -553,7 +560,7 @@ _install_lazygit() {
   local url="https://github.com/jesseduffield/lazygit/releases/download/v${version}/lazygit_${version}_Linux_${arch}.tar.gz"
   if curl -fsSL --connect-timeout 30 --max-time 300 "$url" -o "$tmp/lazygit.tar.gz" 2>> "$LOG_FILE"; then
     if tar xzf "$tmp/lazygit.tar.gz" -C "$tmp" lazygit 2>> "$LOG_FILE" \
-        && install -m 755 "$tmp/lazygit" "$LOCAL_BIN_DIR/lazygit"; then
+        && install -m 755 "$tmp/lazygit" "$LOCAL_BIN_DIR/lazygit" 2>> "$LOG_FILE"; then
       print_success "lazygit ${version} installiert"
     else
       print_warning "lazygit: Entpacken fehlgeschlagen – uebersprungen"
@@ -630,7 +637,7 @@ setup_python() {
   fi
 
   # pip-Konfiguration: kein break-system-packages noetig
-  mkdir -p "$HOME/.config/pip"
+  mkdir -p "$HOME/.config/pip" 2>> "$LOG_FILE"
   cat > "$HOME/.config/pip/pip.conf" <<'EOF'
 [global]
 break-system-packages = false
@@ -822,7 +829,7 @@ setup_zsh() {
   if [[ -f "$zshrc" ]]; then
     # Plugins aktivieren (idempotent via Grep-Check)
     if ! grep -qF "zsh-autosuggestions" "$zshrc"; then
-      sed -i -E '0,/^plugins=\(.*\)/{s/^plugins=\(.*\)/plugins=(git zsh-autosuggestions zsh-syntax-highlighting)/}' "$zshrc"
+      sed -i -E '0,/^plugins=\(.*\)/{s/^plugins=\(.*\)/plugins=(git zsh-autosuggestions zsh-syntax-highlighting)/}' "$zshrc" 2>> "$LOG_FILE"
     fi
     # ~/.local/bin in PATH
     # shellcheck disable=SC2016
@@ -1144,7 +1151,11 @@ offer_passwordless_sudo() {
     return 1
   fi
 
-  sudo install -m 440 "$tmp_sudoers" "$sudoers_file"
+  if ! sudo install -m 440 "$tmp_sudoers" "$sudoers_file" 2>> "$LOG_FILE"; then
+    print_error "sudoers-Datei konnte nicht installiert werden"
+    rm -f "$tmp_sudoers"
+    return 1
+  fi
   rm -f "$tmp_sudoers"
   print_success "Passwordless sudo eingerichtet: $sudoers_file"
 }
